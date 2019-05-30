@@ -151,7 +151,7 @@ class MemberApi(Resource):
         except psycopg2.Error:
             response = {
                 'http_status': 500, 'code': 'DB_ERROR',
-                'msg': 'Unclassified database error!'}
+                'msg': 'Unclassified database error'}
 
         print(response)
         return make_response(response)

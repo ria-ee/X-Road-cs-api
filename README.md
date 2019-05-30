@@ -19,3 +19,7 @@ Testing:
 ```bash
 curl -i -d '{"member_code": "XX000002", "member_name": "XX Test 2", "member_class": "GOV"}' -X POST jan-center2.ci.kit:5444/member
 ```
+
+## API description
+
+API is described using OpenAPI specification: [openapi-definition.yaml](openapi-definition.yaml)

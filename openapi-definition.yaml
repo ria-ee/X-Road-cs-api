@@ -1,0 +1,142 @@
+openapi: 3.0.0
+info:
+  description: X-Road Central Server API
+  version: "1.0.0"
+  title: CS API
+  contact:
+    email: vitali.stupin@ria.ee
+  license:
+    name: MIT License
+    url: 'https://opensource.org/licenses/MIT'
+tags:
+  - name: admin
+    description: Admin-only calls
+paths:
+  /member:
+    post:
+      tags:
+        - admin
+      summary: add new X-Road Member
+      operationId: addMember
+      description: Adds new X-Road Member to Central Server
+      responses:
+        '201':
+          description: Member added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response201'
+              examples:
+                created:
+                  summary: Member created
+                  value: {"code": "CREATED", "msg": "New member added"}
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response400'
+              examples:
+                missingParam:
+                  summary: Required parameter is mussing
+                  value: {"code": "MISSING_PARAMETER", "msg": "Request parameter member_name is missing"}
+                invalidClass:
+                  summary: Member class is not found in Central Server
+                  value: {"code": "INVALID_MEMBER_CLASS", "msg": "Provided Member Class does not exist"}
+        '409':
+          description: An existing member already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response409'
+              examples:
+                memberExists:
+                  summary: Provided Member already exists in Central Server
+                  value: {"code": "MEMBER_EXISTS", "msg": "Provided Member already exists"}
+        '500':
+          description: Server side error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response500'
+              examples:
+                dbConfError:
+                  summary: Application cannot read or parse database configuration
+                  value: {"code": "DB_CONF_ERROR", "msg": "Cannot access database configuration"}
+                dbError:
+                  summary: A generic unclassified DB error occured
+                  value: {"code": "DB_ERROR", "msg": "Unclassified database error"}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Member'
+            examples:
+              member:
+                summary: A bar example
+                value: {"member_code": "00000000", "member_name": "Member 0", "member_class": "GOV"}
+        description: New Member to add
+components:
+  schemas:
+    Member:
+      type: object
+      required:
+        - member_code
+        - member_name
+        - member_class
+      properties:
+        member_code:
+          type: string
+          example: 00000000
+        member_name:
+          type: string
+          example: Member 0
+        member_class:
+          type: string
+          example: GOV
+    Response201:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - CREATED
+          example: CREATED
+        msg:
+          type: string
+          example: New member added
+    Response400:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - INVALID_MEMBER_CLASS
+          example: MISSING_PARAMETER
+        msg:
+          type: string
+          example: Request parameter member_name is missing
+    Response409:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - MEMBER_EXISTS
+          example: MEMBER_EXISTS
+        msg:
+          type: string
+          example: Provided Member already exists
+    Response500:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - DB_CONF_ERROR
+            - DB_ERROR
+          example: DB_CONF_ERROR
+        msg:
+          type: string
+          example: Cannot access database configuration
