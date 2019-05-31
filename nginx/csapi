@@ -1,0 +1,25 @@
+server {
+    listen 5443 ssl;
+    access_log /var/log/nginx/csapi.access.log;
+    error_log /var/log/nginx/csapi.error.log;
+
+    ssl_protocols TLSv1.2;
+    # Nginx key and cert
+    ssl_certificate /etc/nginx/csapi/csapi.crt;
+    ssl_certificate_key /etc/nginx/csapi/csapi.key;
+
+    # client certificate
+    ssl_client_certificate /etc/nginx/csapi/client.crt;
+    # make verification optional, so we can display a 403 message to those
+    # who fail authentication
+    ssl_verify_client optional;
+
+    location / {
+        # Require authentication!!!
+        if ($ssl_client_verify != SUCCESS) {
+            return 403;
+        }
+        proxy_pass http://127.0.0.1:5444;
+        #proxy_redirect http:// https://;
+    }
+}
