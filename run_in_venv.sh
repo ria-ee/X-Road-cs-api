@@ -3,4 +3,7 @@
 set -e
 
 source venv/bin/activate
-python add_member.py
+# Flask (Werkzeug) server
+#python server_dev.py
+# Production ready Gunicorn server
+gunicorn -w 4 -b 0.0.0.0:5444 server:app

@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 
+import logging
 import psycopg2
 import re
-from flask import Flask, request, jsonify
-from flask_restful import Resource, Api
+from flask import request, jsonify
+from flask_restful import Resource
+
+logger = logging.getLogger('member')
 
 
-def add_member(member_code, member_name, member_class):
+def add_member(member_code, member_name, member_class, json_data):
     conf = {
         'database': '',
         'username': '',
@@ -32,6 +35,7 @@ def add_member(member_code, member_name, member_class):
         pass
 
     if not conf['username'] or not conf['password'] or not conf['database']:
+        logger.error('DB_CONF_ERROR: Cannot access database configuration')
         return {
             'http_status': 500, 'code': 'DB_CONF_ERROR',
             'msg': 'Cannot access database configuration'}
@@ -47,6 +51,9 @@ def add_member(member_code, member_name, member_class):
     if rec and len(rec) > 0:
         class_id = rec[0]
     else:
+        logger.warn(
+            'INVALID_MEMBER_CLASS: Provided Member Class does not exist (Request: {})'.format(
+                json_data))
         return {
             'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
             'msg': 'Provided Member Class does not exist'}
@@ -61,6 +68,8 @@ def add_member(member_code, member_name, member_class):
         """, {'str': member_code})
     rec = cur.fetchone()
     if rec[0] is True:
+        logger.warn(
+            'MEMBER_EXISTS: Provided Member already exists (Request: {})'.format(json_data))
         return {
             'http_status': 409, 'code': 'MEMBER_EXISTS',
             'msg': 'Provided Member already exists'}
@@ -110,13 +119,16 @@ def add_member(member_code, member_name, member_class):
     conn.commit()
     conn.close()
 
+    logger.info('Added new member: member_code={}, member_name={}, member_class={}'.format(
+        member_code, member_name, member_class))
+
     return {'http_status': 201, 'code': 'CREATED', 'msg': 'New member added'}
 
 
 def make_response(data):
     response = jsonify({'code': data['code'], 'msg': data['msg']})
     response.status_code = data['http_status']
-
+    logger.info('Response: {}'.format(data))
     return response
 
 
@@ -125,9 +137,14 @@ class MemberApi(Resource):
     def post():
         json_data = request.get_json(force=True)
 
+        logger.info('Incoming request: {}'.format(json_data))
+
         try:
             member_code = json_data['member_code']
         except KeyError:
+            logger.warn(
+                'MISSING_PARAMETER: Request parameter member_code is missing '
+                '(Request: {})'.format(json_data))
             return make_response({
                 'http_status': 400, 'code': 'MISSING_PARAMETER',
                 'msg': 'Request parameter member_code is missing'})
@@ -135,6 +152,9 @@ class MemberApi(Resource):
         try:
             member_name = json_data['member_name']
         except KeyError:
+            logger.warn(
+                'MISSING_PARAMETER: Request parameter member_name is missing '
+                '(Request: {})'.format(json_data))
             return make_response({
                 'http_status': 400, 'code': 'MISSING_PARAMETER',
                 'msg': 'Request parameter member_name is missing'})
@@ -142,40 +162,19 @@ class MemberApi(Resource):
         try:
             member_class = json_data['member_class']
         except KeyError:
+            logger.warn(
+                'MISSING_PARAMETER: Request parameter member_class is missing '
+                '(Request: {})'.format(json_data))
             return make_response({
                 'http_status': 400, 'code': 'MISSING_PARAMETER',
                 'msg': 'Request parameter member_class is missing'})
 
         try:
-            response = add_member(member_code, member_name, member_class)
+            response = add_member(member_code, member_name, member_class, json_data)
         except psycopg2.Error:
+            logger.error('DB_ERROR: Unclassified database error')
             response = {
                 'http_status': 500, 'code': 'DB_ERROR',
                 'msg': 'Unclassified database error'}
 
-        print(response)
         return make_response(response)
-
-
-# NB! For developing only
-#class StopApi(Resource):
-#    @staticmethod
-#    def get():
-#        func = request.environ.get('werkzeug.server.shutdown')
-#        if func is None:
-#            raise RuntimeError('Not running with the Werkzeug Server')
-#        func()
-#        return 'Server shutting down...'
-
-
-def main():
-    app = Flask(__name__)
-    api = Api(app)
-    api.add_resource(MemberApi, '/member')
-#    api.add_resource(StopApi, '/stop')
-    print('Starting APP')
-    app.run(debug=False, host='0.0.0.0', port=5444)
-
-
-if __name__ == '__main__':
-    main()
