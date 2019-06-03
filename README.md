@@ -74,3 +74,12 @@ curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_code"
 ```
 
 Add nginx configuration from this repository: `nginx/csapi` to nginx server: `/etc/nginx/sites-enabled/csapi`
+
+## Systemd
+
+Add service description `csapi.service` to `/etc/systemd/system/csapi.service`. Then start and enable automatic startup:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start csapi
+sudo systemctl enable csapi
+```
