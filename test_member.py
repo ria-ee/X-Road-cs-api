@@ -18,7 +18,7 @@ class MemberTestCase(unittest.TestCase):
                 )
                 self.assertEqual(200, response.status_code)
                 self.assertEqual(cm.output, [
-                    "INFO:member:Response: {'http_status': 200, 'code': 'OKXXX', "
+                    "INFO:member:Response: {'http_status': 200, 'code': 'OK', "
                     + "'msg': 'All Correct'}"])
 
 
