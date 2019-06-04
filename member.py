@@ -126,15 +126,16 @@ def add_member(member_code, member_name, member_class, json_data):
             class_id = get_member_class_id(cur, member_class)
             if class_id is None:
                 logger.warning(
-                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist (Request: {})'.format(
-                        json_data))
+                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist '
+                    '(Request: {})'.format(json_data))
                 return {
                     'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
                     'msg': 'Provided Member Class does not exist'}
 
             if member_exists(cur, member_code):
                 logger.warning(
-                    'MEMBER_EXISTS: Provided Member already exists (Request: {})'.format(json_data))
+                    'MEMBER_EXISTS: Provided Member already exists '
+                    '(Request: {})'.format(json_data))
                 return {
                     'http_status': 409, 'code': 'MEMBER_EXISTS',
                     'msg': 'Provided Member already exists'}
