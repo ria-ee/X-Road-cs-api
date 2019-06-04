@@ -125,7 +125,7 @@ def add_member(member_code, member_name, member_class, json_data):
         with conn.cursor() as cur:
             class_id = get_member_class_id(cur, member_class)
             if class_id is None:
-                logger.warn(
+                logger.warning(
                     'INVALID_MEMBER_CLASS: Provided Member Class does not exist (Request: {})'.format(
                         json_data))
                 return {
@@ -133,7 +133,7 @@ def add_member(member_code, member_name, member_class, json_data):
                     'msg': 'Provided Member Class does not exist'}
 
             if member_exists(cur, member_code):
-                logger.warn(
+                logger.warning(
                     'MEMBER_EXISTS: Provided Member already exists (Request: {})'.format(json_data))
                 return {
                     'http_status': 409, 'code': 'MEMBER_EXISTS',
@@ -167,7 +167,7 @@ def get_input(json_data, param_name):
     try:
         param = json_data[param_name]
     except KeyError:
-        logger.warn(
+        logger.warning(
             'MISSING_PARAMETER: Request parameter {} is missing '
             '(Request: {})'.format(param_name, json_data))
         return None, make_response({
