@@ -6,7 +6,7 @@ API is described using OpenAPI specification: [openapi-definition.yaml](openapi-
 
 ## Systemd configuration
 
-Add service description `systemd/csapi.service` to `/etc/systemd/system/csapi.service`. Then start and enable automatic startup:
+Add service description `systemd/csapi.service` to `/lib/systemd/system/csapi.service`. Then start and enable automatic startup:
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl start csapi
