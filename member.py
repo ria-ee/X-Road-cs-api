@@ -9,7 +9,7 @@ from flask_restful import Resource
 logger = logging.getLogger('member')
 
 
-def add_member(member_code, member_name, member_class, json_data):
+def get_db_conf():
     conf = {
         'database': '',
         'username': '',
@@ -34,31 +34,25 @@ def add_member(member_code, member_name, member_class, json_data):
     except IOError:
         pass
 
-    if not conf['username'] or not conf['password'] or not conf['database']:
-        logger.error('DB_CONF_ERROR: Cannot access database configuration')
-        return {
-            'http_status': 500, 'code': 'DB_CONF_ERROR',
-            'msg': 'Cannot access database configuration'}
+    return conf
 
-    conn = psycopg2.connect(
+
+def get_db_connection(conf):
+    return psycopg2.connect(
         'host={} port={} dbname={} user={} password={}'.format(
             'localhost', '5432', conf['database'], conf['username'], conf['password']))
-    cur = conn.cursor()
 
-    # Check if Member Class is valid
+
+def get_member_class_id(cur, member_class):
     cur.execute("""select id from member_classes where code=%(str)s""", {'str': member_class})
     rec = cur.fetchone()
     if rec and len(rec) > 0:
-        class_id = rec[0]
+        return rec[0]
     else:
-        logger.warn(
-            'INVALID_MEMBER_CLASS: Provided Member Class does not exist (Request: {})'.format(
-                json_data))
-        return {
-            'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
-            'msg': 'Provided Member Class does not exist'}
+        return
 
-    # Check if Member (Member Code) already exists
+
+def member_exists(cur, member_code):
     cur.execute(
         """
             select exists(
@@ -67,17 +61,15 @@ def add_member(member_code, member_name, member_class, json_data):
             )
         """, {'str': member_code})
     rec = cur.fetchone()
-    if rec[0] is True:
-        logger.warn(
-            'MEMBER_EXISTS: Provided Member already exists (Request: {})'.format(json_data))
-        return {
-            'http_status': 409, 'code': 'MEMBER_EXISTS',
-            'msg': 'Provided Member already exists'}
+    return rec[0]
 
-    # Timestamps must be in UTC timezone
+
+def get_utc_time(cur):
     cur.execute("""select current_timestamp at time zone 'UTC'""")
-    utc_time = cur.fetchone()[0]
+    return cur.fetchone()[0]
 
+
+def add_identifier(cur, member_class, member_code, utc_time):
     cur.execute(
         """
             insert into identifiers (
@@ -89,8 +81,10 @@ def add_member(member_code, member_name, member_class, json_data):
             ) returning id
         """, {'class': member_class, 'code': member_code, 'time': utc_time}
     )
-    identifier_id = cur.fetchone()[0]
+    return cur.fetchone()[0]
 
+
+def add_client(cur, member_code, member_name, class_id, identifier_id, utc_time):
     cur.execute(
         """
             insert into security_server_clients (
@@ -105,6 +99,8 @@ def add_member(member_code, member_name, member_class, json_data):
         }
     )
 
+
+def add_client_name(cur, member_name, identifier_id, utc_time):
     cur.execute(
         """
             insert into security_server_client_names (
@@ -115,9 +111,44 @@ def add_member(member_code, member_name, member_class, json_data):
         """, {'name': member_name, 'identifier_id': identifier_id, 'time': utc_time}
     )
 
-    cur.close()
-    conn.commit()
-    conn.close()
+
+def add_member(member_code, member_name, member_class, json_data):
+    # Getting database configuration
+    conf = get_db_conf()
+    if not conf['username'] or not conf['password'] or not conf['database']:
+        logger.error('DB_CONF_ERROR: Cannot access database configuration')
+        return {
+            'http_status': 500, 'code': 'DB_CONF_ERROR',
+            'msg': 'Cannot access database configuration'}
+
+    with get_db_connection(conf) as conn:
+        with conn.cursor() as cur:
+            class_id = get_member_class_id(cur, member_class)
+            if class_id is None:
+                logger.warn(
+                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist (Request: {})'.format(
+                        json_data))
+                return {
+                    'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
+                    'msg': 'Provided Member Class does not exist'}
+
+            if member_exists(cur, member_code):
+                logger.warn(
+                    'MEMBER_EXISTS: Provided Member already exists (Request: {})'.format(json_data))
+                return {
+                    'http_status': 409, 'code': 'MEMBER_EXISTS',
+                    'msg': 'Provided Member already exists'}
+
+            # Timestamps must be in UTC timezone
+            utc_time = get_utc_time(cur)
+
+            identifier_id = add_identifier(cur, member_class, member_code, utc_time)
+
+            add_client(cur, member_code, member_name, class_id, identifier_id, utc_time)
+
+            add_client_name(cur, member_name, identifier_id, utc_time)
+
+        conn.commit()
 
     logger.info('Added new member: member_code={}, member_name={}, member_class={}'.format(
         member_code, member_name, member_class))
@@ -132,6 +163,20 @@ def make_response(data):
     return response
 
 
+def get_input(json_data, param_name):
+    try:
+        param = json_data[param_name]
+    except KeyError:
+        logger.warn(
+            'MISSING_PARAMETER: Request parameter {} is missing '
+            '(Request: {})'.format(param_name, json_data))
+        return None, make_response({
+            'http_status': 400, 'code': 'MISSING_PARAMETER',
+            'msg': 'Request parameter {} is missing'.format(param_name)})
+
+    return param, None
+
+
 class MemberApi(Resource):
     @staticmethod
     def post():
@@ -139,35 +184,17 @@ class MemberApi(Resource):
 
         logger.info('Incoming request: {}'.format(json_data))
 
-        try:
-            member_code = json_data['member_code']
-        except KeyError:
-            logger.warn(
-                'MISSING_PARAMETER: Request parameter member_code is missing '
-                '(Request: {})'.format(json_data))
-            return make_response({
-                'http_status': 400, 'code': 'MISSING_PARAMETER',
-                'msg': 'Request parameter member_code is missing'})
+        (member_code, fault_response) = get_input(json_data, 'member_code')
+        if member_code is None:
+            return fault_response
 
-        try:
-            member_name = json_data['member_name']
-        except KeyError:
-            logger.warn(
-                'MISSING_PARAMETER: Request parameter member_name is missing '
-                '(Request: {})'.format(json_data))
-            return make_response({
-                'http_status': 400, 'code': 'MISSING_PARAMETER',
-                'msg': 'Request parameter member_name is missing'})
+        (member_name, fault_response) = get_input(json_data, 'member_name')
+        if member_name is None:
+            return fault_response
 
-        try:
-            member_class = json_data['member_class']
-        except KeyError:
-            logger.warn(
-                'MISSING_PARAMETER: Request parameter member_class is missing '
-                '(Request: {})'.format(json_data))
-            return make_response({
-                'http_status': 400, 'code': 'MISSING_PARAMETER',
-                'msg': 'Request parameter member_class is missing'})
+        (member_class, fault_response) = get_input(json_data, 'member_class')
+        if member_class is None:
+            return fault_response
 
         try:
             response = add_member(member_code, member_name, member_class, json_data)
