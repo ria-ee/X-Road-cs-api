@@ -170,9 +170,9 @@ def get_input(json_data, param_name):
         logger.warning(
             'MISSING_PARAMETER: Request parameter {} is missing '
             '(Request: {})'.format(param_name, json_data))
-        return None, make_response({
+        return None, {
             'http_status': 400, 'code': 'MISSING_PARAMETER',
-            'msg': 'Request parameter {} is missing'.format(param_name)})
+            'msg': 'Request parameter {} is missing'.format(param_name)}
 
     return param, None
 
@@ -186,15 +186,15 @@ class MemberApi(Resource):
 
         (member_code, fault_response) = get_input(json_data, 'member_code')
         if member_code is None:
-            return fault_response
+            return make_response(fault_response)
 
         (member_name, fault_response) = get_input(json_data, 'member_name')
         if member_name is None:
-            return fault_response
+            return make_response(fault_response)
 
         (member_class, fault_response) = get_input(json_data, 'member_class')
         if member_class is None:
-            return fault_response
+            return make_response(fault_response)
 
         try:
             response = add_member(member_code, member_name, member_class, json_data)
