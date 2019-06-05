@@ -96,6 +96,8 @@ For testing copy nginx `csapi.crt` to client and issue curl command:
 curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_code": "XX000003", "member_name": "XX Test 3", "member_class": "GOVXXX"}' -X POST https://central-server.domain.local:5443/member
 ```
 
+Note that you can allow multiple clients (or nodes) by creating certificate bundle. That can be done by concatenating multiple client certificates into single `client.crt` file.
+
 ## Testing
 
 Note that `server.py` is a configuration file for logging and Flask and therefore not covered by tests.
