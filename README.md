@@ -63,3 +63,43 @@ curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_code"
 ```
 
 Add nginx configuration from this repository: `nginx/csapi` to nginx server: `/etc/nginx/sites-enabled/csapi`
+
+## Testing
+Note that `server.py` is a configuration file for logging and flask and therefore not covered by tests.
+
+Running the tests:
+```bash
+cd <project_directory>
+python -m unittest
+```
+
+Or alternatively run the test file directly:
+```bash
+python test_member.py
+```
+
+In order to measure code coverage install `coverage` module:
+```bash
+pip install coverage
+```
+
+Then coverage analyse:
+```bash
+coverage run test_member.py
+coverage report member.py
+```
+
+Alternatively you can generate html report with:
+```bash
+coverage html member.py
+```
+
+In order to lint the code install `pylint` module:
+```bash
+pip install pylint
+```
+
+Then run the analyse:
+```bash
+pylint member.py
+```

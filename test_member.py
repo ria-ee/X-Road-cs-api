@@ -5,7 +5,7 @@ import member
 import psycopg2
 from flask import Flask, jsonify
 from flask_restful import Api
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch, MagicMock
 
 
 class MemberTestCase(unittest.TestCase):
@@ -90,7 +90,8 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, member.add_identifier(cur, 'MEMBER_CLASS', 'MEMBER_CODE', 'TIME'))
+        self.assertEqual(12345, member.add_identifier(
+            cur, member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME'))
         cur.execute.assert_called_with(
             "\n            insert into identifiers (\n                object_type, "
             "xroad_instance, member_class, member_code, type, created_at,\n                "
@@ -105,7 +106,8 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         self.assertEqual(None, member.add_client(
-            cur, 'MEMBER_CODE', 'MEMBER_NAME', 'CLASS_ID', 'IDENT_ID', 'TIME'))
+            cur, member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id='CLASS_ID',
+            identifier_id='IDENT_ID', utc_time='TIME'))
         cur.execute.assert_called_with(
             "\n            insert into security_server_clients (\n                member_code, "
             "name, member_class_id, server_client_id, type, created_at, updated_at\n            ) "
@@ -118,7 +120,7 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         self.assertEqual(None, member.add_client_name(
-            cur, 'MEMBER_NAME', 'IDENT_ID', 'TIME'))
+            cur, member_name='MEMBER_NAME', identifier_id='IDENT_ID', utc_time='TIME'))
         cur.execute.assert_called_with(
             '\n            insert into security_server_client_names (\n                name, '
             'client_identifier_id, created_at, updated_at\n            ) values (\n'
@@ -131,7 +133,7 @@ reconnect=true
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_add_member_no_database(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
@@ -148,7 +150,7 @@ reconnect=true
             'password': '',
             'username': 'centerui_user'})
     def test_add_member_no_password(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
@@ -165,7 +167,7 @@ reconnect=true
             'password': 'centerui_pass',
             'username': ''})
     def test_add_member_no_username(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
@@ -184,7 +186,7 @@ reconnect=true
             'username': 'centerui_user'})
     def test_add_member_no_class(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'INVALID_MEMBER_CLASS', 'http_status': 400,
@@ -200,6 +202,7 @@ reconnect=true
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
 
+    @patch('member.member_exists', return_value=True)
     @patch('member.get_member_class_id', return_value=12345)
     @patch('member.get_db_connection')
     @patch('member.get_db_conf', return_value={
@@ -207,8 +210,9 @@ reconnect=true
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_add_member_member_exists(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
+            mock_member_exists):
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'MEMBER_EXISTS', 'http_status': 409,
@@ -223,10 +227,57 @@ reconnect=true
                 'username': 'centerui_user'})
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
+            mock_member_exists.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CODE')
+
+    @patch('member.add_client_name')
+    @patch('member.add_client')
+    @patch('member.add_identifier', return_value=123456)
+    @patch('member.get_utc_time', return_value='TIME')
+    @patch('member.member_exists', return_value=False)
+    @patch('member.get_member_class_id', return_value=12345)
+    @patch('member.get_db_connection')
+    @patch('member.get_db_conf', return_value={
+            'database': 'centerui_production',
+            'password': 'centerui_pass',
+            'username': 'centerui_user'})
+    def test_add_member_ok(
+            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
+            mock_member_exists, mock_get_utc_time, mock_add_identifier, mock_add_client,
+            mock_add_client_name):
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            self.assertEqual(
+                {
+                    'code': 'CREATED', 'http_status': 201,
+                    'msg': 'New member added'},
+                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+            self.assertEqual([
+                'INFO:member:Added new member: member_code=MEMBER_CODE, '
+                'member_name=MEMBER_NAME, member_class=MEMBER_CLASS'], cm.output)
+            mock_get_db_conf.assert_called_with()
+            mock_get_db_connection.assert_called_with({
+                'database': 'centerui_production', 'password': 'centerui_pass',
+                'username': 'centerui_user'})
+            mock_get_member_class_id.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
+            mock_member_exists.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CODE')
+            mock_get_utc_time.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__())
+            mock_add_identifier.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(),
+                member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME')
+            mock_add_client.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(),
+                member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id=12345,
+                identifier_id=123456, utc_time='TIME')
+            mock_add_client_name.assert_called_with(
+                mock_get_db_connection().__enter__().cursor().__enter__(),
+                member_name='MEMBER_NAME', identifier_id=123456, utc_time='TIME')
 
     def test_make_response(self):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = member.make_response(
                     {'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
                 self.assertEqual(200, response.status_code)
@@ -246,7 +297,7 @@ reconnect=true
         self.assertEqual(None, err)
 
     def test_get_input_err(self):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             (value, err) = member.get_input(
                 {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'},
                 'member_code')
@@ -260,7 +311,7 @@ reconnect=true
                 cm.output)
 
     def test_empty_query(self):
-        with self.assertLogs(member.logger, level='INFO') as cm:
+        with self.assertLogs(member.LOGGER, level='INFO') as cm:
             response = self.client.post('/member', data=json.dumps({}))
             self.assertEqual(400, response.status_code)
             # Not testing response content, it does not come from application
@@ -273,7 +324,7 @@ reconnect=true
 
     def test_empty_member_code_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'}))
                 self.assertEqual(response.status_code, 400)
@@ -293,7 +344,7 @@ reconnect=true
 
     def test_empty_member_name_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_code': 'MEMBER_CODE', 'member_class': 'MEMBER_CLASS'}))
                 self.assertEqual(response.status_code, 400)
@@ -313,7 +364,7 @@ reconnect=true
 
     def test_empty_member_class_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}))
                 self.assertEqual(response.status_code, 400)
@@ -334,7 +385,7 @@ reconnect=true
     @patch('member.add_member', side_effect=psycopg2.Error)
     def test_db_error_handled(self, mock_add_member):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',
                     'member_class': 'MEMBER_CLASS'}))
@@ -359,7 +410,7 @@ reconnect=true
         'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
     def test_ok_query(self, mock_add_member):
         with self.app.app_context():
-            with self.assertLogs(member.logger, level='INFO') as cm:
+            with self.assertLogs(member.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',
                     'member_class': 'MEMBER_CLASS'}))
