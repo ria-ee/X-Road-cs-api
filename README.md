@@ -2,6 +2,8 @@
 
 This API is used to add new X-Road members directly to X-Road Central Server without web admin interface.
 
+An official management API will be included in a future X-Road release. You can find the roadmap for X-Road [here](https://www.niis.org/xroad-roadmap).
+
 **NB! Make sure your API is not accessible from public internet, and is properly secured in your internal network!**
 
 ## API description
