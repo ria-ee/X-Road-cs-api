@@ -23,7 +23,7 @@ Create `/opt/csapi` directory:
 sudo mkdir -p /opt/csapi
 ```
 
-And copy files `member.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
+And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
 
 You will need to install support for python venv:
 ```bash
@@ -112,7 +112,7 @@ python -m unittest
 
 Or alternatively run the test file directly:
 ```bash
-python test_member.py
+python test_csapi.py
 ```
 
 In order to measure code coverage install `coverage` module:
@@ -122,14 +122,14 @@ pip install coverage
 
 Then run coverage analyse:
 ```bash
-coverage run test_member.py
-coverage report member.py
+coverage run test_csapi.py
+coverage report csapi.py
 ```
 
 Alternatively you can generate html report with:
 ```bash
-coverage run test_member.py
-coverage html member.py
+coverage run test_csapi.py
+coverage html csapi.py
 ```
 
 In order to lint the code install `pylint` module:
@@ -139,5 +139,5 @@ pip install pylint
 
 Then run the analyse:
 ```bash
-pylint member.py
+pylint csapi.py
 ```
