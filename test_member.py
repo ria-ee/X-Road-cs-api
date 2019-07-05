@@ -1,7 +1,7 @@
 import io
 import json
 import unittest
-import member
+import csapi
 import psycopg2
 from flask import Flask, jsonify
 from flask_restful import Api
@@ -13,7 +13,7 @@ class MemberTestCase(unittest.TestCase):
         self.app = Flask(__name__)
         self.client = self.app.test_client()
         self.api = Api(self.app)
-        self.api.add_resource(member.MemberApi, '/member')
+        self.api.add_resource(csapi.MemberApi, '/member')
 
     @patch('builtins.open', return_value=io.StringIO('''adapter=postgresql
 encoding=utf8
@@ -23,7 +23,7 @@ database= centerui_production
 reconnect=true
 '''))
     def test_get_db_conf(self, mock_open):
-        response = member.get_db_conf()
+        response = csapi.get_db_conf()
         self.assertEqual({
             'database': 'centerui_production',
             'password': 'centerui_pass',
@@ -32,13 +32,13 @@ reconnect=true
 
     @patch('builtins.open', side_effect=IOError)
     def test_get_db_conf_ioerr(self, mock_open):
-        response = member.get_db_conf()
+        response = csapi.get_db_conf()
         self.assertEqual({'database': '', 'password': '', 'username': ''}, response)
         mock_open.assert_called_with('/etc/xroad/db.properties', 'r')
 
     @patch('psycopg2.connect')
     def test_get_db_connection(self, mock_pg_connect):
-        member.get_db_connection({
+        csapi.get_db_connection({
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': 'centerui_user'})
@@ -50,7 +50,7 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, member.get_member_class_id(cur, 'MEMBER_CLASS'))
+        self.assertEqual(12345, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
         cur.execute.assert_called_with(
             'select id from member_classes where code=%(str)s', {'str': 'MEMBER_CLASS'})
         cur.fetchone.assert_called_once()
@@ -59,19 +59,19 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[])
-        self.assertEqual(None, member.get_member_class_id(cur, 'MEMBER_CLASS'))
+        self.assertEqual(None, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
 
     def test_get_member_class_id_none(self):
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=None)
-        self.assertEqual(None, member.get_member_class_id(cur, 'MEMBER_CLASS'))
+        self.assertEqual(None, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
 
     def test_member_exists(self):
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[True])
-        self.assertEqual(True, member.member_exists(cur, 'MEMBER_CODE'))
+        self.assertEqual(True, csapi.member_exists(cur, 'MEMBER_CODE'))
         cur.execute.assert_called_with(
             "\n            select exists(\n                select * from security_server_clients\n"
             "                    where type='XRoadMember' and member_code=%(str)s\n            )\n"
@@ -82,7 +82,7 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=['TIME'])
-        self.assertEqual('TIME', member.get_utc_time(cur))
+        self.assertEqual('TIME', csapi.get_utc_time(cur))
         cur.execute.assert_called_with("select current_timestamp at time zone 'UTC'")
         cur.fetchone.assert_called_once()
 
@@ -90,7 +90,7 @@ reconnect=true
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, member.add_identifier(
+        self.assertEqual(12345, csapi.add_identifier(
             cur, member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME'))
         cur.execute.assert_called_with(
             "\n            insert into identifiers (\n                object_type, "
@@ -105,7 +105,7 @@ reconnect=true
     def test_add_client(self):
         cur = MagicMock()
         cur.execute = MagicMock()
-        self.assertEqual(None, member.add_client(
+        self.assertEqual(None, csapi.add_client(
             cur, member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id='CLASS_ID',
             identifier_id='IDENT_ID', utc_time='TIME'))
         cur.execute.assert_called_with(
@@ -119,7 +119,7 @@ reconnect=true
     def test_add_client_name(self):
         cur = MagicMock()
         cur.execute = MagicMock()
-        self.assertEqual(None, member.add_client_name(
+        self.assertEqual(None, csapi.add_client_name(
             cur, member_name='MEMBER_NAME', identifier_id='IDENT_ID', utc_time='TIME'))
         cur.execute.assert_called_with(
             '\n            insert into security_server_client_names (\n                name, '
@@ -127,73 +127,73 @@ reconnect=true
             '                %(name)s, %(identifier_id)s, %(time)s, %(time)s\n            )\n'
             '        ', {'name': 'MEMBER_NAME', 'identifier_id': 'IDENT_ID', 'time': 'TIME'})
 
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': '',
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_add_member_no_database(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
                     'msg': 'Cannot access database configuration'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual(
-                ['ERROR:member:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_not_called()
 
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': 'centerui_production',
             'password': '',
             'username': 'centerui_user'})
     def test_add_member_no_password(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
                     'msg': 'Cannot access database configuration'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual(
-                ['ERROR:member:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_not_called()
 
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': ''})
     def test_add_member_no_username(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'DB_CONF_ERROR', 'http_status': 500,
                     'msg': 'Cannot access database configuration'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual(
-                ['ERROR:member:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_not_called()
 
-    @patch('member.get_member_class_id', return_value=None)
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.get_member_class_id', return_value=None)
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_add_member_no_class(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'INVALID_MEMBER_CLASS', 'http_status': 400,
                     'msg': 'Provided Member Class does not exist'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual([
-                'WARNING:member:INVALID_MEMBER_CLASS: Provided Member Class does not exist '
+                'WARNING:csapi:INVALID_MEMBER_CLASS: Provided Member Class does not exist '
                 '(Request: JSON_DATA)'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_called_with({
@@ -202,24 +202,24 @@ reconnect=true
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
 
-    @patch('member.member_exists', return_value=True)
-    @patch('member.get_member_class_id', return_value=12345)
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.member_exists', return_value=True)
+    @patch('csapi.get_member_class_id', return_value=12345)
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_add_member_member_exists(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
             mock_member_exists):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'MEMBER_EXISTS', 'http_status': 409,
                     'msg': 'Provided Member already exists'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual([
-                'WARNING:member:MEMBER_EXISTS: Provided Member already exists (Request: '
+                'WARNING:csapi:MEMBER_EXISTS: Provided Member already exists (Request: '
                 'JSON_DATA)'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_called_with({
@@ -230,14 +230,14 @@ reconnect=true
             mock_member_exists.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CODE')
 
-    @patch('member.add_client_name')
-    @patch('member.add_client')
-    @patch('member.add_identifier', return_value=123456)
-    @patch('member.get_utc_time', return_value='TIME')
-    @patch('member.member_exists', return_value=False)
-    @patch('member.get_member_class_id', return_value=12345)
-    @patch('member.get_db_connection')
-    @patch('member.get_db_conf', return_value={
+    @patch('csapi.add_client_name')
+    @patch('csapi.add_client')
+    @patch('csapi.add_identifier', return_value=123456)
+    @patch('csapi.get_utc_time', return_value='TIME')
+    @patch('csapi.member_exists', return_value=False)
+    @patch('csapi.get_member_class_id', return_value=12345)
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': 'centerui_user'})
@@ -245,14 +245,14 @@ reconnect=true
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
             mock_member_exists, mock_get_utc_time, mock_add_identifier, mock_add_client,
             mock_add_client_name):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'CREATED', 'http_status': 201,
                     'msg': 'New member added'},
-                member.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
+                csapi.add_member('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', 'JSON_DATA'))
             self.assertEqual([
-                'INFO:member:Added new member: member_code=MEMBER_CODE, '
+                'INFO:csapi:Added new member: member_code=MEMBER_CODE, '
                 'member_name=MEMBER_NAME, member_class=MEMBER_CLASS'], cm.output)
             mock_get_db_conf.assert_called_with()
             mock_get_db_connection.assert_called_with({
@@ -277,8 +277,8 @@ reconnect=true
 
     def test_make_response(self):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
-                response = member.make_response(
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                response = csapi.make_response(
                     {'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
                 self.assertEqual(200, response.status_code)
                 self.assertEqual(
@@ -286,19 +286,19 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Response: {'http_status': 200, 'code': 'OK', "
+                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', "
                     "'msg': 'All Correct'}"], cm.output)
 
     def test_get_input(self):
-        (value, err) = member.get_input(
+        (value, err) = csapi.get_input(
             {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'},
             'member_name')
         self.assertEqual('MEMBER_NAME', value)
         self.assertEqual(None, err)
 
     def test_get_input_err(self):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
-            (value, err) = member.get_input(
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            (value, err) = csapi.get_input(
                 {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'},
                 'member_code')
             self.assertEqual(None, value)
@@ -306,25 +306,25 @@ reconnect=true
                 'code': 'MISSING_PARAMETER', 'http_status': 400,
                 'msg': 'Request parameter member_code is missing'}, err)
             self.assertEqual([
-                'WARNING:member:MISSING_PARAMETER: Request parameter member_code is missing '
+                'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                 "(Request: {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'})"],
                 cm.output)
 
     def test_empty_query(self):
-        with self.assertLogs(member.LOGGER, level='INFO') as cm:
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             response = self.client.post('/member', data=json.dumps({}))
             self.assertEqual(400, response.status_code)
             # Not testing response content, it does not come from application
             self.assertEqual([
-                'INFO:member:Incoming request: {}',
-                'WARNING:member:MISSING_PARAMETER: Request parameter member_code is missing '
+                'INFO:csapi:Incoming request: {}',
+                'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                 '(Request: {})',
-                "INFO:member:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
+                "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                 "'msg': 'Request parameter member_code is missing'}"], cm.output)
 
     def test_empty_member_code_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'}))
                 self.assertEqual(response.status_code, 400)
@@ -335,16 +335,16 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Incoming request: {'member_name': 'MEMBER_NAME', 'member_class': "
+                    "INFO:csapi:Incoming request: {'member_name': 'MEMBER_NAME', 'member_class': "
                     "'MEMBER_CLASS'}",
-                    'WARNING:member:MISSING_PARAMETER: Request parameter member_code is missing '
+                    'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                     "(Request: {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'})",
-                    "INFO:member:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
+                    "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                     "'msg': 'Request parameter member_code is missing'}"], cm.output)
 
     def test_empty_member_name_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_code': 'MEMBER_CODE', 'member_class': 'MEMBER_CLASS'}))
                 self.assertEqual(response.status_code, 400)
@@ -355,16 +355,16 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Incoming request: {'member_code': 'MEMBER_CODE', 'member_class': "
+                    "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', 'member_class': "
                     "'MEMBER_CLASS'}",
-                    'WARNING:member:MISSING_PARAMETER: Request parameter member_name is missing '
+                    'WARNING:csapi:MISSING_PARAMETER: Request parameter member_name is missing '
                     "(Request: {'member_code': 'MEMBER_CODE', 'member_class': 'MEMBER_CLASS'})",
-                    "INFO:member:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
+                    "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                     "'msg': 'Request parameter member_name is missing'}"], cm.output)
 
     def test_empty_member_class_query(self):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps(
                     {'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}))
                 self.assertEqual(response.status_code, 400)
@@ -375,17 +375,17 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
+                    "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
                     "'MEMBER_NAME'}",
-                    'WARNING:member:MISSING_PARAMETER: Request parameter member_class is missing '
+                    'WARNING:csapi:MISSING_PARAMETER: Request parameter member_class is missing '
                     "(Request: {'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'})",
-                    "INFO:member:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
+                    "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                     "'msg': 'Request parameter member_class is missing'}"], cm.output)
 
-    @patch('member.add_member', side_effect=psycopg2.Error)
+    @patch('csapi.add_member', side_effect=psycopg2.Error)
     def test_db_error_handled(self, mock_add_member):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',
                     'member_class': 'MEMBER_CLASS'}))
@@ -397,20 +397,20 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
+                    "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
                     "'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'}",
-                    'ERROR:member:DB_ERROR: Unclassified database error',
-                    "INFO:member:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
+                    'ERROR:csapi:DB_ERROR: Unclassified database error',
+                    "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
                     "'Unclassified database error'}"], cm.output)
                 mock_add_member.assert_called_with('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', {
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',
                     'member_class': 'MEMBER_CLASS'})
 
-    @patch('member.add_member', return_value={
+    @patch('csapi.add_member', return_value={
         'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
     def test_ok_query(self, mock_add_member):
         with self.app.app_context():
-            with self.assertLogs(member.LOGGER, level='INFO') as cm:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',
                     'member_class': 'MEMBER_CLASS'}))
@@ -422,9 +422,9 @@ reconnect=true
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:member:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
+                    "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
                     "'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'}",
-                    "INFO:member:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
+                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
                     "Correct'}"], cm.output)
                 mock_add_member.assert_called_with('MEMBER_CODE', 'MEMBER_NAME', 'MEMBER_CLASS', {
                     'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME',

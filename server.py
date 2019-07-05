@@ -3,13 +3,13 @@
 import logging
 from flask import Flask
 from flask_restful import Api
-from member import MemberApi
+from csapi import MemberApi
 
 handler = logging.FileHandler('/var/log/xroad/csapi.log')
 handler.setFormatter(logging.Formatter('%(asctime)s - %(process)d - %(levelname)s: %(message)s'))
 
-# Member module logger
-logger_m = logging.getLogger('member')
+# CS API module logger
+logger_m = logging.getLogger('csapi')
 logger_m.setLevel(logging.INFO)
 logger_m.addHandler(handler)
 

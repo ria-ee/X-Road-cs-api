@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-"""This is a module for X-Road Central Server member API.
+"""This is a module for X-Road Central Server API.
 
-This module allows adding new members to the X-Road Central Server.
+This module allows:
+    * adding new members to the X-Road Central Server.
 """
 
 import logging
@@ -12,7 +13,7 @@ from flask import request, jsonify
 from flask_restful import Resource
 
 DB_CONF_FILE = '/etc/xroad/db.properties'
-LOGGER = logging.getLogger('member')
+LOGGER = logging.getLogger('csapi')
 
 
 def get_db_conf():
