@@ -72,8 +72,7 @@ def subsystem_exists(cur, member_id, subsystem_code):
                     and subsystem_code=%(subsystem_code)s
             )
         """, {'member_id': member_id, 'subsystem_code': subsystem_code})
-    rec = cur.fetchone()
-    return rec[0]
+    return cur.fetchone()[0]
 
 
 def get_member_data(cur, class_id, member_code):
@@ -136,7 +135,7 @@ def add_subsystem_identifier(cur, **kwargs):
             ) returning id
         """, {
             'class': kwargs['member_class'], 'member_code': kwargs['member_code'],
-            'subsystem_code': kwargs['member_code'], 'time': kwargs['utc_time']}
+            'subsystem_code': kwargs['subsystem_code'], 'time': kwargs['utc_time']}
     )
     return cur.fetchone()[0]
 
@@ -203,7 +202,7 @@ def add_client_name(cur, **kwargs):
     )
 
 
-def add_member(member_code, member_name, member_class, json_data):
+def add_member(member_class, member_code, member_name, json_data):
     """Add new X-Road member to Central Server"""
     conf = get_db_conf()
     if not conf['username'] or not conf['password'] or not conf['database']:
@@ -352,6 +351,10 @@ class MemberApi(Resource):
 
         LOGGER.info('Incoming request: %s', json_data)
 
+        (member_class, fault_response) = get_input(json_data, 'member_class')
+        if member_class is None:
+            return make_response(fault_response)
+
         (member_code, fault_response) = get_input(json_data, 'member_code')
         if member_code is None:
             return make_response(fault_response)
@@ -360,12 +363,8 @@ class MemberApi(Resource):
         if member_name is None:
             return make_response(fault_response)
 
-        (member_class, fault_response) = get_input(json_data, 'member_class')
-        if member_class is None:
-            return make_response(fault_response)
-
         try:
-            response = add_member(member_code, member_name, member_class, json_data)
+            response = add_member(member_class, member_code, member_name, json_data)
         except psycopg2.Error as err:
             LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
             response = {
