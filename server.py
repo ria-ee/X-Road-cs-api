@@ -3,7 +3,7 @@
 import logging
 from flask import Flask
 from flask_restful import Api
-from csapi import MemberApi
+from csapi import MemberApi, SubsystemApi
 
 handler = logging.FileHandler('/var/log/xroad/csapi.log')
 handler.setFormatter(logging.Formatter('%(asctime)s - %(process)d - %(levelname)s: %(message)s'))
@@ -21,5 +21,6 @@ logger.addHandler(handler)
 app = Flask(__name__)
 api = Api(app)
 api.add_resource(MemberApi, '/member')
+api.add_resource(SubsystemApi, '/subsystem')
 
 logger.info('Starting Central Server API')

@@ -3,7 +3,8 @@
 """This is a module for X-Road Central Server API.
 
 This module allows:
-    * adding new members to the X-Road Central Server.
+    * adding new member to the X-Road Central Server.
+    * adding new subsystem to the X-Road Central Server.
 """
 
 import logging
@@ -61,17 +62,47 @@ def get_member_class_id(cur, member_class):
     return None
 
 
-def member_exists(cur, member_code):
+def member_exists(cur, class_id, member_code):
     """Check if member exists in Central Server"""
     cur.execute(
         """
             select exists(
                 select * from security_server_clients
-                    where type='XRoadMember' and member_code=%(str)s
+                where type='XRoadMember' member_class_id=%(class_id)s
+                    and member_code=%(member_code)s
             )
-        """, {'str': member_code})
+        """, {'class_id': class_id, 'member_code': member_code})
     rec = cur.fetchone()
     return rec[0]
+
+
+def subsystem_exists(cur, member_id, subsystem_code):
+    """Check if subsystem exists in Central Server"""
+    cur.execute(
+        """
+            select exists(
+                select * from security_server_clients
+                where type='Subsystem' and xroad_member_id=%(member_id)s
+                    and subsystem_code=%(subsystem_code)s 
+            )
+        """, {'member_id': member_id, 'subsystem_code': subsystem_code})
+    rec = cur.fetchone()
+    return rec[0]
+
+
+def get_member_data(cur, class_id, member_code):
+    """Get member data from Central Server"""
+    cur.execute(
+        """
+            select id, name
+            from security_server_clients
+            where type='XRoadMember' and member_class_id=%(class_id)s
+                and member_code=%(member_code)s
+        """, {'class_id': class_id, 'member_code': member_code})
+    rec = cur.fetchone()
+    if rec:
+        return {'id': rec[0], 'name': rec[2]}
+    return None
 
 
 def get_utc_time(cur):
@@ -102,6 +133,28 @@ def add_identifier(cur, **kwargs):
     return cur.fetchone()[0]
 
 
+def add_subsystem_identifier(cur, **kwargs):
+    """Add new X-Road subsystem identifier to Central Server
+
+    Required keyword arguments:
+    member_class, member_code, subsystem_code, utc_time
+    """
+    cur.execute(
+        """
+            insert into identifiers (
+                object_type, xroad_instance, member_class, member_code, subsystem_code, type,
+                created_at, updated_at
+            ) values (
+                'SUBSYSTEM', (select value from system_parameters where key='instanceIdentifier'),
+                %(class)s, %(member_code)s, %(subsystem_code)s, 'ClientId', %(time)s, %(time)s
+            ) returning id
+        """, {
+            'class': kwargs['member_class'], 'member_code': kwargs['member_code'],
+            'subsystem_code': kwargs['member_code'], 'time': kwargs['utc_time']}
+    )
+    return cur.fetchone()[0]
+
+
 def add_client(cur, **kwargs):
     """Add new X-Road client to Central Server
 
@@ -120,6 +173,27 @@ def add_client(cur, **kwargs):
             'code': kwargs['member_code'], 'name': kwargs['member_name'],
             'class_id': kwargs['class_id'], 'identifier_id': kwargs['identifier_id'],
             'time': kwargs['utc_time']
+        }
+    )
+
+
+def add_subsystem_client(cur, **kwargs):
+    """Add new X-Road subsystem as a client to Central Server
+
+    Required keyword arguments:
+    subsystem_code, member_id, identifier_id, utc_time
+    """
+    cur.execute(
+        """
+            insert into security_server_clients (
+                subsystem_code, xroad_member_id, server_client_id, type, created_at, updated_at
+            ) values (
+                %(subsystem_code)s, %(member_id)s, %(identifier_id)s, 'Subsystem', %(time)s,
+                %(time)s
+            )
+        """, {
+            'subsystem_code': kwargs['subsystem_code'], 'member_id': kwargs['member_id'],
+            'identifier_id': kwargs['identifier_id'], 'time': kwargs['utc_time']
         }
     )
 
@@ -163,7 +237,7 @@ def add_member(member_code, member_name, member_class, json_data):
                     'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
                     'msg': 'Provided Member Class does not exist'}
 
-            if member_exists(cur, member_code):
+            if member_exists(cur, class_id, member_code):
                 LOGGER.warning(
                     'MEMBER_EXISTS: Provided Member already exists '
                     '(Request: %s)', json_data)
@@ -187,10 +261,71 @@ def add_member(member_code, member_name, member_class, json_data):
         conn.commit()
 
     LOGGER.info(
-        'Added new member: member_code=%s, member_name=%s, member_class=%s',
+        'Added new Member: member_code=%s, member_name=%s, member_class=%s',
         member_code, member_name, member_class)
 
-    return {'http_status': 201, 'code': 'CREATED', 'msg': 'New member added'}
+    return {'http_status': 201, 'code': 'CREATED', 'msg': 'New Member added'}
+
+
+def add_subsystem(member_class, member_code, subsystem_code, json_data):
+    """Add new X-Road subsystem to Central Server"""
+    conf = get_db_conf()
+    if not conf['username'] or not conf['password'] or not conf['database']:
+        LOGGER.error('DB_CONF_ERROR: Cannot access database configuration')
+        return {
+            'http_status': 500, 'code': 'DB_CONF_ERROR',
+            'msg': 'Cannot access database configuration'}
+
+    with get_db_connection(conf) as conn:
+        with conn.cursor() as cur:
+            class_id = get_member_class_id(cur, member_class)
+            if class_id is None:
+                LOGGER.warning(
+                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist '
+                    '(Request: %s)', json_data)
+                return {
+                    'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
+                    'msg': 'Provided Member Class does not exist'}
+
+            member_data = get_member_data(cur, class_id, member_code)
+            if member_data is None:
+                LOGGER.warning(
+                    'INVALID_MEMBER: Provided Member does not exist '
+                    '(Request: %s)', json_data)
+                return {
+                    'http_status': 400, 'code': 'INVALID_MEMBER',
+                    'msg': 'Provided Member does not exist'}
+
+            if subsystem_exists(cur, member_data['id'], subsystem_code):
+                LOGGER.warning(
+                    'SUBSYSTEM_EXISTS: Provided Subsystem already exists '
+                    '(Request: %s)', json_data)
+                return {
+                    'http_status': 409, 'code': 'SUBSYSTEM_EXISTS',
+                    'msg': 'Provided Subsystem already exists'}
+
+            # Timestamps must be in UTC timezone
+            utc_time = get_utc_time(cur)
+
+            identifier_id = add_subsystem_identifier(
+                cur, member_class=member_class, member_code=member_code,
+                subsystem_code=subsystem_code, utc_time=utc_time)
+
+            add_subsystem_client(
+                cur, subsystem_code=subsystem_code, member_id=member_data['id'],
+                identifier_id=identifier_id, utc_time=utc_time)
+
+            add_client_name(
+                cur, member_name=member_data['name'], identifier_id=identifier_id,
+                utc_time=utc_time)
+
+        conn.commit()
+
+    LOGGER.info(
+        'Added new Subsystem: member_class=%s, member_code=%s, subsystem_code=%s',
+        member_class, member_code, subsystem_code)
+
+    return {'http_status': 201, 'code': 'CREATED', 'msg': 'New Subsystem added'}
 
 
 def make_response(data):
@@ -245,8 +380,40 @@ class MemberApi(Resource):
 
         try:
             response = add_member(member_code, member_name, member_class, json_data)
-        except psycopg2.Error:
-            LOGGER.error('DB_ERROR: Unclassified database error')
+        except psycopg2.Error as err:
+            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
+            response = {
+                'http_status': 500, 'code': 'DB_ERROR',
+                'msg': 'Unclassified database error'}
+
+        return make_response(response)
+
+
+class SubsystemApi(Resource):
+    """Subsystem API class for Flask"""
+    @staticmethod
+    def post():
+        """POST method"""
+        json_data = request.get_json(force=True)
+
+        LOGGER.info('Incoming request: %s', json_data)
+
+        (member_class, fault_response) = get_input(json_data, 'member_class')
+        if member_class is None:
+            return make_response(fault_response)
+
+        (member_code, fault_response) = get_input(json_data, 'member_code')
+        if member_code is None:
+            return make_response(fault_response)
+
+        (subsystem_code, fault_response) = get_input(json_data, 'subsystem_code')
+        if subsystem_code is None:
+            return make_response(fault_response)
+
+        try:
+            response = add_subsystem(member_class, member_code, subsystem_code, json_data)
+        except psycopg2.Error as err:
+            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
             response = {
                 'http_status': 500, 'code': 'DB_ERROR',
                 'msg': 'Unclassified database error'}
