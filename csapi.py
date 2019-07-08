@@ -97,8 +97,8 @@ def get_utc_time(cur):
     return cur.fetchone()[0]
 
 
-def add_identifier(cur, **kwargs):
-    """Add new X-Road identifier to Central Server
+def add_member_identifier(cur, **kwargs):
+    """Add new X-Road member identifier to Central Server
 
     Required keyword arguments:
     member_class, member_code, utc_time
@@ -141,8 +141,8 @@ def add_subsystem_identifier(cur, **kwargs):
     return cur.fetchone()[0]
 
 
-def add_client(cur, **kwargs):
-    """Add new X-Road client to Central Server
+def add_member_client(cur, **kwargs):
+    """Add new X-Road member client to Central Server
 
     Required keyword arguments:
     member_code, member_name, class_id, identifier_id, utc_time
@@ -234,10 +234,10 @@ def add_member(member_code, member_name, member_class, json_data):
             # Timestamps must be in UTC timezone
             utc_time = get_utc_time(cur)
 
-            identifier_id = add_identifier(
+            identifier_id = add_member_identifier(
                 cur, member_class=member_class, member_code=member_code, utc_time=utc_time)
 
-            add_client(
+            add_member_client(
                 cur, member_code=member_code, member_name=member_name, class_id=class_id,
                 identifier_id=identifier_id, utc_time=utc_time)
 

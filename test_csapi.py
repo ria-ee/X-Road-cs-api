@@ -112,11 +112,11 @@ reconnect=true
         cur.execute.assert_called_with("select current_timestamp at time zone 'UTC'")
         cur.fetchone.assert_called_once()
 
-    def test_add_identifier(self):
+    def test_add_member_identifier(self):
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, csapi.add_identifier(
+        self.assertEqual(12345, csapi.add_member_identifier(
             cur, member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME'))
         cur.execute.assert_called_with(
             "\n            insert into identifiers (\n                object_type, "
@@ -128,10 +128,10 @@ reconnect=true
                 'class': 'MEMBER_CLASS', 'code': 'MEMBER_CODE', 'time': 'TIME'})
         cur.fetchone.assert_called_once()
 
-    def test_add_client(self):
+    def test_add_member_client(self):
         cur = MagicMock()
         cur.execute = MagicMock()
-        self.assertEqual(None, csapi.add_client(
+        self.assertEqual(None, csapi.add_member_client(
             cur, member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id='CLASS_ID',
             identifier_id='IDENT_ID', utc_time='TIME'))
         cur.execute.assert_called_with(
@@ -257,8 +257,8 @@ reconnect=true
                 mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
 
     @patch('csapi.add_client_name')
-    @patch('csapi.add_client')
-    @patch('csapi.add_identifier', return_value=123456)
+    @patch('csapi.add_member_client')
+    @patch('csapi.add_member_identifier', return_value=123456)
     @patch('csapi.get_utc_time', return_value='TIME')
     @patch('csapi.get_member_data', return_value=None)
     @patch('csapi.get_member_class_id', return_value=12345)
@@ -269,7 +269,7 @@ reconnect=true
             'username': 'centerui_user'})
     def test_add_member_ok(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data, mock_get_utc_time, mock_add_identifier, mock_add_client,
+            mock_get_member_data, mock_get_utc_time, mock_add_member_identifier, mock_add_member_client,
             mock_add_client_name):
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
@@ -290,10 +290,10 @@ reconnect=true
                 mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
             mock_get_utc_time.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__())
-            mock_add_identifier.assert_called_with(
+            mock_add_member_identifier.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(),
                 member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME')
-            mock_add_client.assert_called_with(
+            mock_add_member_client.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(),
                 member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id=12345,
                 identifier_id=123456, utc_time='TIME')
