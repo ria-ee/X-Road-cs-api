@@ -62,20 +62,6 @@ def get_member_class_id(cur, member_class):
     return None
 
 
-def member_exists(cur, class_id, member_code):
-    """Check if member exists in Central Server"""
-    cur.execute(
-        """
-            select exists(
-                select * from security_server_clients
-                where type='XRoadMember' member_class_id=%(class_id)s
-                    and member_code=%(member_code)s
-            )
-        """, {'class_id': class_id, 'member_code': member_code})
-    rec = cur.fetchone()
-    return rec[0]
-
-
 def subsystem_exists(cur, member_id, subsystem_code):
     """Check if subsystem exists in Central Server"""
     cur.execute(
@@ -83,7 +69,7 @@ def subsystem_exists(cur, member_id, subsystem_code):
             select exists(
                 select * from security_server_clients
                 where type='Subsystem' and xroad_member_id=%(member_id)s
-                    and subsystem_code=%(subsystem_code)s 
+                    and subsystem_code=%(subsystem_code)s
             )
         """, {'member_id': member_id, 'subsystem_code': subsystem_code})
     rec = cur.fetchone()
@@ -101,7 +87,7 @@ def get_member_data(cur, class_id, member_code):
         """, {'class_id': class_id, 'member_code': member_code})
     rec = cur.fetchone()
     if rec:
-        return {'id': rec[0], 'name': rec[2]}
+        return {'id': rec[0], 'name': rec[1]}
     return None
 
 
@@ -237,7 +223,7 @@ def add_member(member_code, member_name, member_class, json_data):
                     'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
                     'msg': 'Provided Member Class does not exist'}
 
-            if member_exists(cur, class_id, member_code):
+            if get_member_data(cur, class_id, member_code) is not None:
                 LOGGER.warning(
                     'MEMBER_EXISTS: Provided Member already exists '
                     '(Request: %s)', json_data)

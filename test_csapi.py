@@ -67,16 +67,41 @@ reconnect=true
         cur.fetchone = MagicMock(return_value=None)
         self.assertEqual(None, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
 
-    def test_member_exists(self):
+    def test_subsystem_exists(self):
         cur = MagicMock()
         cur.execute = MagicMock()
         cur.fetchone = MagicMock(return_value=[True])
-        self.assertEqual(True, csapi.member_exists(cur, 123, 'MEMBER_CODE'))
+        self.assertEqual(True, csapi.subsystem_exists(cur, 123, 'SUBSYSTEM_CODE'))
         cur.execute.assert_called_with(
             "\n            select exists(\n                select * from security_server_clients\n"
-            "                where type='XRoadMember' member_class_id=%(class_id)s\n"
-            "                    and member_code=%(member_code)s\n"
-            "            )\n        ", {'class_id': 123, 'member_code': 'MEMBER_CODE'})
+            "                where type='Subsystem' and xroad_member_id=%(member_id)s\n"
+            "                    and subsystem_code=%(subsystem_code)s\n"
+            "            )\n        ", {'member_id': 123, 'subsystem_code': 'SUBSYSTEM_CODE'})
+        cur.fetchone.assert_called_once()
+
+    def test_get_member_data(self):
+        cur = MagicMock()
+        cur.execute = MagicMock()
+        cur.fetchone = MagicMock(return_value=[1234, 'M_NAME'])
+        self.assertEqual(
+            {'id': 1234, 'name': 'M_NAME'}, csapi.get_member_data(cur, 123, 'MEMBER_CODE'))
+        cur.execute.assert_called_with(
+            "\n            select id, name\n            from security_server_clients\n"
+            "            where type='XRoadMember' and member_class_id=%(class_id)s\n"
+            "                and member_code=%(member_code)s\n"
+            "        ", {'class_id': 123, 'member_code': 'MEMBER_CODE'})
+        cur.fetchone.assert_called_once()
+
+    def test_get_member_data_no_member(self):
+        cur = MagicMock()
+        cur.execute = MagicMock()
+        cur.fetchone = MagicMock(return_value=None)
+        self.assertEqual(None, csapi.get_member_data(cur, 123, 'MEMBER_CODE'))
+        cur.execute.assert_called_with(
+            "\n            select id, name\n            from security_server_clients\n"
+            "            where type='XRoadMember' and member_class_id=%(class_id)s\n"
+            "                and member_code=%(member_code)s\n"
+            "        ", {'class_id': 123, 'member_code': 'MEMBER_CODE'})
         cur.fetchone.assert_called_once()
 
     def test_get_utc_time(self):
@@ -203,7 +228,7 @@ reconnect=true
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
 
-    @patch('csapi.member_exists', return_value=True)
+    @patch('csapi.get_member_data', return_value={'id': 111, 'name': 'M_NAME'})
     @patch('csapi.get_member_class_id', return_value=12345)
     @patch('csapi.get_db_connection')
     @patch('csapi.get_db_conf', return_value={
@@ -212,7 +237,7 @@ reconnect=true
             'username': 'centerui_user'})
     def test_add_member_member_exists(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_member_exists):
+            mock_get_member_data):
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
@@ -228,14 +253,14 @@ reconnect=true
                 'username': 'centerui_user'})
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_member_exists.assert_called_with(
+            mock_get_member_data.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
 
     @patch('csapi.add_client_name')
     @patch('csapi.add_client')
     @patch('csapi.add_identifier', return_value=123456)
     @patch('csapi.get_utc_time', return_value='TIME')
-    @patch('csapi.member_exists', return_value=False)
+    @patch('csapi.get_member_data', return_value=None)
     @patch('csapi.get_member_class_id', return_value=12345)
     @patch('csapi.get_db_connection')
     @patch('csapi.get_db_conf', return_value={
@@ -244,7 +269,7 @@ reconnect=true
             'username': 'centerui_user'})
     def test_add_member_ok(
             self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_member_exists, mock_get_utc_time, mock_add_identifier, mock_add_client,
+            mock_get_member_data, mock_get_utc_time, mock_add_identifier, mock_add_client,
             mock_add_client_name):
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
@@ -261,7 +286,7 @@ reconnect=true
                 'username': 'centerui_user'})
             mock_get_member_class_id.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_member_exists.assert_called_with(
+            mock_get_member_data.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
             mock_get_utc_time.assert_called_with(
                 mock_get_db_connection().__enter__().cursor().__enter__())
