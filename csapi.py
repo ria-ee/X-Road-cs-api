@@ -7,6 +7,7 @@ This module allows:
     * adding new subsystem to the X-Road Central Server.
 """
 
+import json
 import logging
 import re
 import psycopg2
@@ -342,14 +343,61 @@ def get_input(json_data, param_name):
     return param, None
 
 
+def load_config(config_file):
+    """Load configuration from JSON file"""
+    try:
+        with open(config_file, 'r') as conf:
+            LOGGER.info('Configuration loaded from file "%s"', config_file)
+            return json.load(conf)
+    except IOError as err:
+        LOGGER.error('Cannot load configuration file "%s": %s', config_file, str(err))
+        return None
+    except json.JSONDecodeError as err:
+        LOGGER.error('Invalid JSON configuration file "%s": %s', config_file, str(err))
+        return None
+
+
+def check_client(config, client_dn):
+    """Check if client dn is in whitelist"""
+    # If config is None then all clients are not allowed
+    if config is None:
+        return False
+    if config.get('allow_all', False) is True:
+        return True
+
+    allowed = config.get('allowed')
+    if client_dn is None or not isinstance(allowed, list):
+        return False
+
+    if client_dn in allowed:
+        return True
+
+    return False
+
+
+def incorrect_client(client_dn):
+    """Return error response when client is not allowed"""
+    LOGGER.error('FORBIDDEN: Client certificate is not allowed: %s', client_dn)
+    return make_response({
+        'http_status': 403, 'code': 'FORBIDDEN',
+        'msg': 'Client certificate is not allowed: {}'.format(client_dn)})
+
+
 class MemberApi(Resource):
     """Member API class for Flask"""
-    @staticmethod
-    def post():
+    def __init__(self, config):
+        self.config = config
+
+    def post(self):
         """POST method"""
         json_data = request.get_json(force=True)
+        client_dn = request.headers.get('X-Ssl-Client-S-Dn')
 
         LOGGER.info('Incoming request: %s', json_data)
+        LOGGER.info('Client DN: %s', client_dn)
+
+        if not check_client(self.config, client_dn):
+            return incorrect_client(client_dn)
 
         (member_class, fault_response) = get_input(json_data, 'member_class')
         if member_class is None:
@@ -376,12 +424,19 @@ class MemberApi(Resource):
 
 class SubsystemApi(Resource):
     """Subsystem API class for Flask"""
-    @staticmethod
-    def post():
+    def __init__(self, config):
+        self.config = config
+
+    def post(self):
         """POST method"""
         json_data = request.get_json(force=True)
+        client_dn = request.headers.get('X-Ssl-Client-S-Dn')
 
         LOGGER.info('Incoming request: %s', json_data)
+        LOGGER.info('Client DN: %s', client_dn)
+
+        if not check_client(self.config, client_dn):
+            return incorrect_client(client_dn)
 
         (member_class, fault_response) = get_input(json_data, 'member_class')
         if member_class is None:

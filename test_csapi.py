@@ -8,13 +8,15 @@ from flask_restful import Api
 from unittest.mock import patch, MagicMock
 
 
-class MemberTestCase(unittest.TestCase):
+class MainTestCase(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
         self.client = self.app.test_client()
         self.api = Api(self.app)
-        self.api.add_resource(csapi.MemberApi, '/member')
-        self.api.add_resource(csapi.SubsystemApi, '/subsystem')
+        self.api.add_resource(csapi.MemberApi, '/member', resource_class_kwargs={
+            'config': {'allow_all': True}})
+        self.api.add_resource(csapi.SubsystemApi, '/subsystem', resource_class_kwargs={
+            'config': {'allow_all': True}})
 
     @patch('builtins.open', return_value=io.StringIO('''adapter=postgresql
 encoding=utf8
@@ -560,6 +562,7 @@ reconnect=true
             # Not testing response content, it does not come from application
             self.assertEqual([
                 'INFO:csapi:Incoming request: {}',
+                'INFO:csapi:Client DN: None',
                 'WARNING:csapi:MISSING_PARAMETER: Request parameter member_class is missing '
                 '(Request: {})',
                 "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -580,6 +583,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', 'member_name': "
                     "'MEMBER_NAME'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter member_class is missing '
                     "(Request: {'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'})",
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -600,6 +604,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_name': "
                     "'MEMBER_NAME'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                     "(Request: {'member_class': 'MEMBER_CLASS', 'member_name': 'MEMBER_NAME'})",
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -620,6 +625,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
                     "'MEMBER_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter member_name is missing '
                     "(Request: {'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE'})",
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -642,6 +648,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
                     "'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
+                    'INFO:csapi:Client DN: None',
                     'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
                     "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
                     "'Unclassified database error'}"], cm.output)
@@ -667,6 +674,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
                     "'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
+                    'INFO:csapi:Client DN: None',
                     "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
                     "Correct'}"], cm.output)
                 mock_add_member.assert_called_with('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', {
@@ -680,6 +688,7 @@ reconnect=true
             # Not testing response content, it does not come from application
             self.assertEqual([
                 'INFO:csapi:Incoming request: {}',
+                'INFO:csapi:Client DN: None',
                 'WARNING:csapi:MISSING_PARAMETER: Request parameter member_class is missing '
                 '(Request: {})',
                 "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -700,6 +709,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_code': 'MEMBER_CODE', "
                     "'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter member_class is missing '
                     "(Request: {'member_code': 'MEMBER_CODE', "
                     "'subsystem_code': 'SUBSYSTEM_CODE'})",
@@ -721,6 +731,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
                     "'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                     "(Request: {'member_class': 'MEMBER_CLASS', "
                     "'subsystem_code': 'SUBSYSTEM_CODE'})",
@@ -742,6 +753,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
                     "'MEMBER_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     'WARNING:csapi:MISSING_PARAMETER: Request parameter subsystem_code is missing '
                     "(Request: {'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE'})",
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
@@ -764,6 +776,7 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
                     "'member_code': 'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
                     "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
                     "'Unclassified database error'}"], cm.output)
@@ -790,11 +803,13 @@ reconnect=true
                 self.assertEqual([
                     "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
                     "'member_code': 'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    'INFO:csapi:Client DN: None',
                     "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
                     "Correct'}"], cm.output)
-                mock_add_subsystem.assert_called_with('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', {
-                    'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                    'subsystem_code': 'SUBSYSTEM_CODE'})
+                mock_add_subsystem.assert_called_with(
+                    'MEMBER_CLASS', 'MEMBER_CODE','SUBSYSTEM_CODE', {
+                        'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
+                        'subsystem_code': 'SUBSYSTEM_CODE'})
 
 
 if __name__ == '__main__':

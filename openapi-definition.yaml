@@ -53,6 +53,16 @@ paths:
                 memberExists:
                   summary: Provided Member already exists in Central Server
                   value: {"code": "MEMBER_EXISTS", "msg": "Provided Member already exists"}
+        '403':
+          description: Client certificate is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseMember403'
+              examples:
+                memberExists:
+                  summary: Client certificate is not allowed
+                  value: {"code": "FORBIDDEN", "msg": "Client certificate is not allowed"}
         '500':
           description: Server side error
           content:
@@ -110,6 +120,16 @@ paths:
                 ivalidMember:
                   summary: Member class is not found in Central Server
                   value: {"code": "INVALID_MEMBER", "msg": "Provided Member does not exist"}
+        '403':
+          description: Client certificate is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSubsystem403'
+              examples:
+                memberExists:
+                  summary: Client certificate is not allowed
+                  value: {"code": "FORBIDDEN", "msg": "Client certificate is not allowed"}
         '409':
           description: Provided Subsystem already exists
           content:
@@ -224,6 +244,28 @@ components:
         msg:
           type: string
           example: Request parameter subsystem_code is missing
+    ResponseMember403:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - FORBIDDEN
+          example: FORBIDDEN
+        msg:
+          type: string
+          example: Client certificate is not allowed
+    ResponseSubsystem403:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - FORBIDDEN
+          example: FORBIDDEN
+        msg:
+          type: string
+          example: Client certificate is not allowed
     ResponseMember409:
       type: object
       properties:
