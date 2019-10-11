@@ -5,7 +5,7 @@ import csapi
 import psycopg2
 from flask import Flask, jsonify
 from flask_restful import Api
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, mock_open
 
 
 class MainTestCase(unittest.TestCase):
@@ -555,6 +555,53 @@ reconnect=true
                 "(Request: {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'})"],
                 cm.output)
 
+    def test_load_config(self):
+        # Valid json
+        with patch('builtins.open', mock_open(read_data=json.dumps({'allow_all': True}))) as m:
+            self.assertEqual({'allow_all': True}, csapi.load_config('FILENAME'))
+            m.assert_called_once_with('FILENAME', 'r')
+        # Invalid json
+        with patch('builtins.open', mock_open(read_data='NOT_JSON')) as m:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                self.assertEqual(None, csapi.load_config('FILENAME'))
+                m.assert_called_once_with('FILENAME', 'r')
+                self.assertEqual([
+                    'INFO:csapi:Configuration loaded from file "FILENAME"',
+                    'ERROR:csapi:Invalid JSON configuration file "FILENAME": Expecting value: '
+                    'line 1 column 1 (char 0)'], cm.output)
+        # Invalid file
+        with patch('builtins.open', mock_open()) as m:
+            m.side_effect = IOError
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                self.assertEqual(None, csapi.load_config('FILENAME'))
+                m.assert_called_once_with('FILENAME', 'r')
+                self.assertEqual([
+                    'ERROR:csapi:Cannot load configuration file "FILENAME": '], cm.output)
+
+    def test_check_client(self):
+        self.assertEqual(False, csapi.check_client(None, 'CLIENT_DN'))
+        self.assertEqual(True, csapi.check_client({'allow_all': True}, 'CLIENT_DN'))
+        self.assertEqual(False, csapi.check_client({'allowed': ['DN1', 'DN2']}, None))
+        self.assertEqual(False, csapi.check_client({'allowed': 'NOT_LIST'}, 'DN3'))
+        self.assertEqual(True, csapi.check_client({'allowed': ['DN1', 'DN2']}, 'DN1'))
+        self.assertEqual(False, csapi.check_client({'allowed': ['DN1', 'DN2']}, 'DN3'))
+
+    def test_incorrect_client(self):
+        with self.app.app_context():
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                response = csapi.incorrect_client('CLIENT_DN')
+                self.assertEqual(403, response.status_code)
+                self.assertEqual(
+                    jsonify({
+                        'code': 'FORBIDDEN',
+                        'msg': 'Client certificate is not allowed: CLIENT_DN'}).json,
+                    response.json
+                )
+                self.assertEqual([
+                    'ERROR:csapi:FORBIDDEN: Client certificate is not allowed: CLIENT_DN',
+                    "INFO:csapi:Response: {'http_status': 403, 'code': 'FORBIDDEN', 'msg': "
+                    "'Client certificate is not allowed: CLIENT_DN'}"], cm.output)
+
     def test_member_empty_query(self):
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             response = self.client.post('/member', data=json.dumps({}))
@@ -810,6 +857,39 @@ reconnect=true
                     'MEMBER_CLASS', 'MEMBER_CODE','SUBSYSTEM_CODE', {
                         'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
                         'subsystem_code': 'SUBSYSTEM_CODE'})
+
+
+class NoConfTestCase(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.client = self.app.test_client()
+        self.api = Api(self.app)
+        self.api.add_resource(csapi.MemberApi, '/member', resource_class_kwargs={
+            'config': None})
+        self.api.add_resource(csapi.SubsystemApi, '/subsystem', resource_class_kwargs={
+            'config': None})
+
+    def test_member_no_conf(self):
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            response = self.client.post('/member', data=json.dumps({}))
+            self.assertEqual(403, response.status_code)
+            self.assertEqual([
+                'INFO:csapi:Incoming request: {}',
+                'INFO:csapi:Client DN: None',
+                'ERROR:csapi:FORBIDDEN: Client certificate is not allowed: None',
+                "INFO:csapi:Response: {'http_status': 403, 'code': 'FORBIDDEN', 'msg': "
+                "'Client certificate is not allowed: None'}"], cm.output)
+
+    def test_subsystem_no_conf(self):
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            response = self.client.post('/subsystem', data=json.dumps({}))
+            self.assertEqual(403, response.status_code)
+            self.assertEqual([
+                'INFO:csapi:Incoming request: {}',
+                'INFO:csapi:Client DN: None',
+                'ERROR:csapi:FORBIDDEN: Client certificate is not allowed: None',
+                "INFO:csapi:Response: {'http_status': 403, 'code': 'FORBIDDEN', 'msg': "
+                "'Client certificate is not allowed: None'}"], cm.output)
 
 
 if __name__ == '__main__':

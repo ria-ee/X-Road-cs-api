@@ -38,6 +38,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+Create configuration file `/opt/csapi/config.json` based on example configuration `example-config.json`. You need to either set parameter "allow_all" to "true" to disable client certificate check or specify list of trusted Client DN's. Disabled check means that all certificates trusted by Nginx would be allowed.
+
 ### Systemd configuration
 
 Add service description `systemd/csapi.service` to `/lib/systemd/system/csapi.service`. Then start and enable automatic startup:
