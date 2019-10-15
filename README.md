@@ -23,7 +23,7 @@ Create `/opt/csapi` directory:
 sudo mkdir -p /opt/csapi
 ```
 
-And copy files `member.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
+And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
 
 You will need to install support for python venv:
 ```bash
@@ -37,6 +37,8 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+Create configuration file `/opt/csapi/config.json` based on example configuration `example-config.json`. You need to either set parameter "allow_all" to "true" to disable client certificate check or specify list of trusted Client DN's. Disabled check means that all certificates trusted by Nginx would be allowed.
 
 ### Systemd configuration
 
@@ -93,9 +95,10 @@ Email Address []:
 
 Copy client.crt to Central Server machine: `/etc/nginx/csapi/client.crt`
 
-For testing copy nginx `csapi.crt` to client and issue curl command:
+For testing copy nginx `csapi.crt` to client and issue curl commands:
 ```bash
-curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_code": "XX000003", "member_name": "XX Test 3", "member_class": "GOVXXX"}' -X POST https://central-server.domain.local:5443/member
+curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_class": "GOVXXX", "member_code": "XX000003", "member_name": "XX Test 3"}' -X POST https://central-server.domain.local:5443/member
+curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_class": "GOVXXX", "member_code": "XX000003", "subsystem_code": "SystemXX"}' -X POST https://central-server.domain.local:5443/subsystem
 ```
 
 Note that you can allow multiple clients (or nodes) by creating certificate bundle. That can be done by concatenating multiple client certificates into single `client.crt` file.
@@ -112,7 +115,7 @@ python -m unittest
 
 Or alternatively run the test file directly:
 ```bash
-python test_member.py
+python test_csapi.py
 ```
 
 In order to measure code coverage install `coverage` module:
@@ -122,14 +125,14 @@ pip install coverage
 
 Then run coverage analyse:
 ```bash
-coverage run test_member.py
-coverage report member.py
+coverage run test_csapi.py
+coverage report csapi.py
 ```
 
 Alternatively you can generate html report with:
 ```bash
-coverage run test_member.py
-coverage html member.py
+coverage run test_csapi.py
+coverage html csapi.py
 ```
 
 In order to lint the code install `pylint` module:
@@ -139,5 +142,5 @@ pip install pylint
 
 Then run the analyse:
 ```bash
-pylint member.py
+pylint csapi.py
 ```
