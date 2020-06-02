@@ -21,8 +21,8 @@ Provided systemd and nginx configurations assume than program files are installe
 Create `/opt/csapi` and `/opt/csapi/socket` directories:
 ```bash
 sudo mkdir -p /opt/csapi
-mkdir -p /opt/csapi/socket
-chown xroad /opt/csapi/socket/
+sudo mkdir -p /opt/csapi/socket
+sudo chown xroad /opt/csapi/socket/
 ```
 
 And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
