@@ -18,9 +18,11 @@ Installation was tested with Ubuntu 18.04.
 
 Provided systemd and nginx configurations assume than program files are installed under `/opt/csapi`. Program is running under `xroad` user to be able to access X-Road configuration files and database without any additional configurations.
 
-Create `/opt/csapi` directory:
+Create `/opt/csapi` and `/opt/csapi/socket` directories:
 ```bash
 sudo mkdir -p /opt/csapi
+mkdir -p /opt/csapi/socket
+chown xroad /opt/csapi/socket/
 ```
 
 And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
