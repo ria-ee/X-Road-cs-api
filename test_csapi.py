@@ -17,6 +17,8 @@ class MainTestCase(unittest.TestCase):
             'config': {'allow_all': True}})
         self.api.add_resource(csapi.SubsystemApi, '/subsystem', resource_class_kwargs={
             'config': {'allow_all': True}})
+        self.api.add_resource(csapi.StatusApi, '/status', resource_class_kwargs={
+            'config': {'allow_all': True}})
 
     @patch('builtins.open', return_value=io.StringIO('''adapter=postgresql
 encoding=utf8
@@ -857,6 +859,125 @@ reconnect=true
                     'MEMBER_CLASS', 'MEMBER_CODE','SUBSYSTEM_CODE', {
                         'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
                         'subsystem_code': 'SUBSYSTEM_CODE'})
+
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
+            'database': 'centerui_production',
+            'password': 'centerui_pass',
+            'username': 'centerui_user'})
+    def test_test_db_ok(self, mock_get_db_conf, mock_get_db_connection):
+        mock_get_db_connection.execute = MagicMock()
+        mock_get_db_connection.fetchone = MagicMock(return_value=1)
+        self.assertEqual(
+            {'code': 'OK', 'http_status': 200, 'msg': 'API is ready'},
+            csapi.test_db())
+        mock_get_db_conf.assert_called_with()
+        mock_get_db_connection.assert_called_with({
+            'database': 'centerui_production', 'password': 'centerui_pass',
+            'username': 'centerui_user'})
+
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
+            'database': 'centerui_production',
+            'password': 'centerui_pass',
+            'username': 'centerui_user'})
+    def test_test_db_not_ok(self, mock_get_db_conf, mock_get_db_connection):
+        mock_get_db_connection.execute = MagicMock()
+        mock_get_db_connection.fetchone = MagicMock(return_value=False)
+        self.assertEqual(
+            {'code': 'OK', 'http_status': 200, 'msg': 'API is ready'},
+            csapi.test_db())
+        mock_get_db_conf.assert_called_with()
+        mock_get_db_connection.assert_called_with({
+            'database': 'centerui_production', 'password': 'centerui_pass',
+            'username': 'centerui_user'})
+
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
+            'database': '',
+            'password': 'centerui_pass',
+            'username': 'centerui_user'})
+    def test_test_db_no_database(self, mock_get_db_conf, mock_get_db_connection):
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            self.assertEqual(
+                {
+                    'code': 'DB_CONF_ERROR', 'http_status': 500,
+                    'msg': 'Cannot access database configuration'},
+                csapi.test_db())
+            self.assertEqual(
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+            mock_get_db_conf.assert_called_with()
+            mock_get_db_connection.assert_not_called()
+
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
+            'database': 'centerui_production',
+            'password': '',
+            'username': 'centerui_user'})
+    def test_test_db_no_password(self, mock_get_db_conf, mock_get_db_connection):
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            self.assertEqual(
+                {
+                    'code': 'DB_CONF_ERROR', 'http_status': 500,
+                    'msg': 'Cannot access database configuration'},
+                csapi.test_db())
+            self.assertEqual(
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+            mock_get_db_conf.assert_called_with()
+            mock_get_db_connection.assert_not_called()
+
+    @patch('csapi.get_db_connection')
+    @patch('csapi.get_db_conf', return_value={
+            'database': 'centerui_production',
+            'password': 'centerui_pass',
+            'username': ''})
+    def test_test_db_no_username(self, mock_get_db_conf, mock_get_db_connection):
+        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+            self.assertEqual(
+                {
+                    'code': 'DB_CONF_ERROR', 'http_status': 500,
+                    'msg': 'Cannot access database configuration'},
+                csapi.test_db())
+            self.assertEqual(
+                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
+            mock_get_db_conf.assert_called_with()
+            mock_get_db_connection.assert_not_called()
+
+    @patch('csapi.test_db', side_effect=psycopg2.Error('DB_ERROR_MSG'))
+    def test_status_db_error_handled(self, mock_test_db):
+        with self.app.app_context():
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                response = self.client.get('/status')
+                self.assertEqual(500, response.status_code)
+                self.assertEqual(
+                    jsonify({
+                        'code': 'DB_ERROR',
+                        'msg': 'Unclassified database error'}).json,
+                    response.json
+                )
+                self.assertEqual([
+                    'INFO:csapi:Incoming status request',
+                    'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
+                    "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
+                    "'Unclassified database error'}"], cm.output)
+                mock_test_db.assert_called_with()
+
+    @patch('csapi.test_db', return_value={
+        'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
+    def test_status_ok(self, mock_test_db):
+        with self.app.app_context():
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                response = self.client.get('/status')
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(
+                    jsonify({'code': 'OK', 'msg': 'All Correct'}).json,
+                    response.json
+                )
+                self.assertEqual([
+                    'INFO:csapi:Incoming status request',
+                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
+                    "Correct'}"], cm.output)
+                mock_test_db.assert_called_with()
 
 
 class NoConfTestCase(unittest.TestCase):
