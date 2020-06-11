@@ -105,6 +105,12 @@ curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_class
 
 Note that you can allow multiple clients (or nodes) by creating certificate bundle. That can be done by concatenating multiple client certificates into single `client.crt` file.
 
+### API Status
+API Status is available on `/status` endpoint. You can test that with curl:
+```bash
+curl -k https://central-server.domain.local:5443/status
+```
+
 ## Testing
 
 Note that `server.py` is a configuration file for logging and Flask and therefore not covered by tests.
