@@ -882,10 +882,10 @@ reconnect=true
             'password': 'centerui_pass',
             'username': 'centerui_user'})
     def test_test_db_not_ok(self, mock_get_db_conf, mock_get_db_connection):
-        mock_get_db_connection.execute = MagicMock()
-        mock_get_db_connection.fetchone = MagicMock(return_value=False)
+        mock_cur = mock_get_db_connection.return_value.__enter__.return_value.cursor.return_value
+        mock_cur.__enter__.return_value.fetchone.return_value = None
         self.assertEqual(
-            {'code': 'OK', 'http_status': 200, 'msg': 'API is ready'},
+            {'code': 'DB_ERROR', 'http_status': 500, 'msg': 'Unexpected DB state'},
             csapi.test_db())
         mock_get_db_conf.assert_called_with()
         mock_get_db_connection.assert_called_with({
