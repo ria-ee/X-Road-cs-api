@@ -383,6 +383,27 @@ def incorrect_client(client_dn):
         'msg': 'Client certificate is not allowed: {}'.format(client_dn)})
 
 
+def test_db():
+    """Add new X-Road subsystem to Central Server"""
+    conf = get_db_conf()
+    if not conf['username'] or not conf['password'] or not conf['database']:
+        LOGGER.error('DB_CONF_ERROR: Cannot access database configuration')
+        return {
+            'http_status': 500, 'code': 'DB_CONF_ERROR',
+            'msg': 'Cannot access database configuration'}
+
+    with get_db_connection(conf) as conn:
+        with conn.cursor() as cur:
+            cur.execute("""select 1 from system_parameters where key='instanceIdentifier'""")
+            rec = cur.fetchone()
+            if rec:
+                return {
+                    'http_status': 200, 'code': 'OK',
+                    'msg': 'API is ready'}
+
+    return {'http_status': 500, 'code': 'DB_ERROR', 'msg': 'Unexpected DB state'}
+
+
 class MemberApi(Resource):
     """Member API class for Flask"""
     def __init__(self, config):
@@ -452,6 +473,27 @@ class SubsystemApi(Resource):
 
         try:
             response = add_subsystem(member_class, member_code, subsystem_code, json_data)
+        except psycopg2.Error as err:
+            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
+            response = {
+                'http_status': 500, 'code': 'DB_ERROR',
+                'msg': 'Unclassified database error'}
+
+        return make_response(response)
+
+
+class StatusApi(Resource):
+    """Status API class for Flask"""
+    def __init__(self, config):
+        self.config = config
+
+    @staticmethod
+    def get():
+        """GET method"""
+        LOGGER.info('Incoming status request')
+
+        try:
+            response = test_db()
         except psycopg2.Error as err:
             LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
             response = {
