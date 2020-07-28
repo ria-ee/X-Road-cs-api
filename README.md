@@ -18,9 +18,11 @@ Installation was tested with Ubuntu 18.04.
 
 Provided systemd and nginx configurations assume than program files are installed under `/opt/csapi`. Program is running under `xroad` user to be able to access X-Road configuration files and database without any additional configurations.
 
-Create `/opt/csapi` directory:
+Create `/opt/csapi` and `/opt/csapi/socket` directories:
 ```bash
 sudo mkdir -p /opt/csapi
+sudo mkdir -p /opt/csapi/socket
+sudo chown xroad /opt/csapi/socket/
 ```
 
 And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
@@ -102,6 +104,12 @@ curl --cert client.crt --key client.key --cacert csapi.crt -i -d '{"member_class
 ```
 
 Note that you can allow multiple clients (or nodes) by creating certificate bundle. That can be done by concatenating multiple client certificates into single `client.crt` file.
+
+### API Status
+API Status is available on `/status` endpoint. You can test that with curl:
+```bash
+curl -k https://central-server.domain.local:5443/status
+```
 
 ## Testing
 
