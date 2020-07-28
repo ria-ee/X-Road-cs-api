@@ -25,34 +25,44 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Response201'
+                $ref: '#/components/schemas/ResponseMember201'
               examples:
                 created:
                   summary: Member created
-                  value: {"code": "CREATED", "msg": "New member added"}
+                  value: {"code": "CREATED", "msg": "New Member added"}
         '400':
           description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Response400'
+                $ref: '#/components/schemas/ResponseMember400'
               examples:
                 missingParam:
-                  summary: Required parameter is mussing
+                  summary: Required parameter is missing
                   value: {"code": "MISSING_PARAMETER", "msg": "Request parameter member_name is missing"}
                 invalidClass:
                   summary: Member class is not found in Central Server
                   value: {"code": "INVALID_MEMBER_CLASS", "msg": "Provided Member Class does not exist"}
         '409':
-          description: An existing member already exists
+          description: Provided Member already exists
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Response409'
+                $ref: '#/components/schemas/ResponseMember409'
               examples:
                 memberExists:
                   summary: Provided Member already exists in Central Server
                   value: {"code": "MEMBER_EXISTS", "msg": "Provided Member already exists"}
+        '403':
+          description: Client certificate is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseMember403'
+              examples:
+                memberExists:
+                  summary: Client certificate is not allowed
+                  value: {"code": "FORBIDDEN", "msg": "Client certificate is not allowed"}
         '500':
           description: Server side error
           content:
@@ -73,28 +83,121 @@ paths:
               $ref: '#/components/schemas/Member'
             examples:
               member:
-                summary: A bar example
-                value: {"member_code": "00000000", "member_name": "Member 0", "member_class": "GOV"}
+                summary: Example request parameters
+                value: {"member_class": "GOV", "member_code": "00000000", "member_name": "Member 0"}
         description: New Member to add
+  /subsystem:
+    post:
+      tags:
+        - admin
+      summary: add new X-Road Subsystem
+      operationId: addSubsystem
+      description: Adds new X-Road Subsystem to Central Server
+      responses:
+        '201':
+          description: Subsystem added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSubsystem201'
+              examples:
+                created:
+                  summary: Subsystem created
+                  value: {"code": "CREATED", "msg": "New Subsystem added"}
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSubsystem400'
+              examples:
+                missingParam:
+                  summary: Required parameter is mussing
+                  value: {"code": "MISSING_PARAMETER", "msg": "Request parameter member_name is missing"}
+                invalidClass:
+                  summary: Member class is not found in Central Server
+                  value: {"code": "INVALID_MEMBER_CLASS", "msg": "Provided Member Class does not exist"}
+                ivalidMember:
+                  summary: Member class is not found in Central Server
+                  value: {"code": "INVALID_MEMBER", "msg": "Provided Member does not exist"}
+        '403':
+          description: Client certificate is not allowed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSubsystem403'
+              examples:
+                memberExists:
+                  summary: Client certificate is not allowed
+                  value: {"code": "FORBIDDEN", "msg": "Client certificate is not allowed"}
+        '409':
+          description: Provided Subsystem already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseSubsystem409'
+              examples:
+                memberExists:
+                  summary: Provided Subsystem already exists in Central Server
+                  value: {"code": "SUBSYSTEM_EXISTS", "msg": "Provided Subsystem already exists"}
+        '500':
+          description: Server side error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Response500'
+              examples:
+                dbConfError:
+                  summary: Application cannot read or parse database configuration
+                  value: {"code": "DB_CONF_ERROR", "msg": "Cannot access database configuration"}
+                dbError:
+                  summary: A generic unclassified DB error occured
+                  value: {"code": "DB_ERROR", "msg": "Unclassified database error"}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Subsystem'
+            examples:
+              member:
+                summary: Example request parameters
+                value: {"member_class": "GOV", "member_code": "00000000", "subsystem_code": "Subsystem0"}
+        description: New Subsystem to add
 components:
   schemas:
     Member:
       type: object
       required:
+        - member_class
         - member_code
         - member_name
-        - member_class
       properties:
+        member_class:
+          type: string
+          example: GOV
         member_code:
           type: string
           example: 00000000
         member_name:
           type: string
           example: Member 0
+    Subsystem:
+      type: object
+      required:
+        - member_class
+        - member_code
+        - subsystem_code
+      properties:
         member_class:
           type: string
           example: GOV
-    Response201:
+        member_code:
+          type: string
+          example: 00000000
+        subsystem_code:
+          type: string
+          example: Subsystem0
+    ResponseMember201:
       type: object
       properties:
         code:
@@ -104,8 +207,19 @@ components:
           example: CREATED
         msg:
           type: string
-          example: New member added
-    Response400:
+          example: New Member added
+    ResponseSubsystem201:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - CREATED
+          example: CREATED
+        msg:
+          type: string
+          example: New Subsystem added
+    ResponseMember400:
       type: object
       properties:
         code:
@@ -117,7 +231,42 @@ components:
         msg:
           type: string
           example: Request parameter member_name is missing
-    Response409:
+    ResponseSubsystem400:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - MISSING_PARAMETER
+            - INVALID_MEMBER_CLASS
+            - INVALID_MEMBER
+          example: MISSING_PARAMETER
+        msg:
+          type: string
+          example: Request parameter subsystem_code is missing
+    ResponseMember403:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - FORBIDDEN
+          example: FORBIDDEN
+        msg:
+          type: string
+          example: Client certificate is not allowed
+    ResponseSubsystem403:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - FORBIDDEN
+          example: FORBIDDEN
+        msg:
+          type: string
+          example: Client certificate is not allowed
+    ResponseMember409:
       type: object
       properties:
         code:
@@ -128,6 +277,17 @@ components:
         msg:
           type: string
           example: Provided Member already exists
+    ResponseSubsystem409:
+      type: object
+      properties:
+        code:
+          type: string
+          enum:
+            - SUBSYSTEM_EXISTS
+          example: SUBSYSTEM_EXISTS
+        msg:
+          type: string
+          example: Provided Subsystem already exists
     Response500:
       type: object
       properties:

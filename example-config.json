@@ -1,0 +1,6 @@
+{
+  "allow_all": false,
+  "allowed": [
+    "OU=xtss,O=RIA,C=EE"
+  ]
+}
