@@ -153,12 +153,4 @@ Then run the analyse:
 pylint csapi.py
 ```
 
-## CSAPI sees kliendisertide vahetamine
-lisada RIA ROOT: vi /etc/nginx/csapi/client.crt
 
-service nginx restart
-
-vi /opt/csapi/config.json 
-ainult üks väärtus (saab csapi.log ühendusekatse loomisel): CN=xtss-xroadconf.prod.riaint.ee,O=Information System Authority,L=Tallinn,ST=Harju County,C=EE
-
-service csapi restart
