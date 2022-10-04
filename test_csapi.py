@@ -33,13 +33,13 @@ reconnect=true
             'database': 'centerui_production',
             'password': 'centerui_pass',
             'username': 'centerui_user'}, response)
-        mock_open.assert_called_with('/etc/xroad/db.properties', 'r')
+        mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('builtins.open', side_effect=IOError)
     def test_get_db_conf_ioerr(self, mock_open):
         response = csapi.get_db_conf()
         self.assertEqual({'database': '', 'password': '', 'username': ''}, response)
-        mock_open.assert_called_with('/etc/xroad/db.properties', 'r')
+        mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('psycopg2.connect')
     def test_get_db_connection(self, mock_pg_connect):
@@ -561,12 +561,12 @@ reconnect=true
         # Valid json
         with patch('builtins.open', mock_open(read_data=json.dumps({'allow_all': True}))) as m:
             self.assertEqual({'allow_all': True}, csapi.load_config('FILENAME'))
-            m.assert_called_once_with('FILENAME', 'r')
+            m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
         # Invalid json
         with patch('builtins.open', mock_open(read_data='NOT_JSON')) as m:
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 self.assertEqual(None, csapi.load_config('FILENAME'))
-                m.assert_called_once_with('FILENAME', 'r')
+                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
                 self.assertEqual([
                     'INFO:csapi:Configuration loaded from file "FILENAME"',
                     'ERROR:csapi:Invalid JSON configuration file "FILENAME": Expecting value: '
@@ -576,7 +576,7 @@ reconnect=true
             m.side_effect = IOError
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 self.assertEqual(None, csapi.load_config('FILENAME'))
-                m.assert_called_once_with('FILENAME', 'r')
+                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
                 self.assertEqual([
                     'ERROR:csapi:Cannot load configuration file "FILENAME": '], cm.output)
 

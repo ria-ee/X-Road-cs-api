@@ -28,7 +28,7 @@ def get_db_conf():
 
     # Getting database credentials from X-Road configuration
     try:
-        with open(DB_CONF_FILE, 'r') as db_conf:
+        with open(DB_CONF_FILE, 'r', encoding="utf-8") as db_conf:
             for line in db_conf:
                 match_res = re.match('^database\\s*=\\s*(.+)$', line)
                 if match_res:
@@ -50,8 +50,8 @@ def get_db_conf():
 def get_db_connection(conf):
     """Get connection object for Central Server database"""
     return psycopg2.connect(
-        'host={} port={} dbname={} user={} password={}'.format(
-            'localhost', '5432', conf['database'], conf['username'], conf['password']))
+        f"host=localhost port=5432 dbname={conf['database']} "
+        f"user={conf['username']} password={conf['password']}")
 
 
 def get_member_class_id(cur, member_class):
@@ -338,7 +338,7 @@ def get_input(json_data, param_name):
             '(Request: %s)', param_name, json_data)
         return None, {
             'http_status': 400, 'code': 'MISSING_PARAMETER',
-            'msg': 'Request parameter {} is missing'.format(param_name)}
+            'msg': f'Request parameter {param_name} is missing'}
 
     return param, None
 
@@ -346,7 +346,7 @@ def get_input(json_data, param_name):
 def load_config(config_file):
     """Load configuration from JSON file"""
     try:
-        with open(config_file, 'r') as conf:
+        with open(config_file, 'r', encoding="utf-8") as conf:
             LOGGER.info('Configuration loaded from file "%s"', config_file)
             return json.load(conf)
     except IOError as err:
@@ -380,7 +380,7 @@ def incorrect_client(client_dn):
     LOGGER.error('FORBIDDEN: Client certificate is not allowed: %s', client_dn)
     return make_response({
         'http_status': 403, 'code': 'FORBIDDEN',
-        'msg': 'Client certificate is not allowed: {}'.format(client_dn)})
+        'msg': f'Client certificate is not allowed: {client_dn}'})
 
 
 def test_db():
