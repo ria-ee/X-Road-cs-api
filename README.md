@@ -148,9 +148,7 @@ In order to lint the code install `pylint` module:
 pip install pylint
 ```
 
-Then run the analyse:
+Then run the analysis:
 ```bash
 pylint csapi.py
 ```
-
-

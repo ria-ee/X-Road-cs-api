@@ -29,7 +29,7 @@ host=centerui_host
 port=centerui_port
 reconnect=true
 '''))
-    def test_get_db_conf(self, mock_open):
+    def test_get_db_conf(self, mock_builtin_open):
         response = csapi.get_db_conf()
         self.assertEqual({
             'database': 'centerui_production',
@@ -37,13 +37,13 @@ reconnect=true
             'username': 'centerui_user',
             'host': 'centerui_host',
             'port': 'centerui_port'}, response)
-        mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
+        mock_builtin_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('builtins.open', side_effect=IOError)
-    def test_get_db_conf_ioerr(self, mock_open):
+    def test_get_db_conf_ioerr(self, mock_builtin_open):
         response = csapi.get_db_conf()
         self.assertEqual({'database': '', 'password': '', 'username': '', 'host': '', 'port': ''}, response)
-        mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
+        mock_builtin_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('psycopg2.connect')
     def test_get_db_connection(self, mock_pg_connect):
@@ -862,7 +862,7 @@ reconnect=true
                     "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
                     "Correct'}"], cm.output)
                 mock_add_subsystem.assert_called_with(
-                    'MEMBER_CLASS', 'MEMBER_CODE','SUBSYSTEM_CODE', {
+                    'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', {
                         'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
                         'subsystem_code': 'SUBSYSTEM_CODE'})
 
