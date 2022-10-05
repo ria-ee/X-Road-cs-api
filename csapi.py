@@ -22,8 +22,10 @@ def get_db_conf():
     """Get Central Server database configuration parameters"""
     conf = {
         'database': '',
-        'username': '',
-        'password': ''
+        'host': '',
+        'password': '',
+        'port': '',
+        'username': ''
     }
 
     # Getting database credentials from X-Road configuration
@@ -34,13 +36,21 @@ def get_db_conf():
                 if match_res:
                     conf['database'] = match_res.group(1)
 
-                match_res = re.match('^username\\s*=\\s*(.+)$', line)
+                match_res = re.match('^host\\s*=\\s*(.+)$', line)
                 if match_res:
-                    conf['username'] = match_res.group(1)
+                    conf['host'] = match_res.group(1)
 
                 match_res = re.match('^password\\s*=\\s*(.+)$', line)
                 if match_res:
                     conf['password'] = match_res.group(1)
+
+                match_res = re.match('^port\\s*=\\s*(.+)$', line)
+                if match_res:
+                    conf['port'] = match_res.group(1)
+
+                match_res = re.match('^username\\s*=\\s*(.+)$', line)
+                if match_res:
+                    conf['username'] = match_res.group(1)
     except IOError:
         pass
 
@@ -50,7 +60,7 @@ def get_db_conf():
 def get_db_connection(conf):
     """Get connection object for Central Server database"""
     return psycopg2.connect(
-        f"host=localhost port=5432 dbname={conf['database']} "
+        f"host={conf['host']} port={conf['port']} dbname={conf['database']} "
         f"user={conf['username']} password={conf['password']}")
 
 

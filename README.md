@@ -12,7 +12,7 @@ API is described using OpenAPI specification: [openapi-definition.yaml](openapi-
 
 ## Installation
 
-Installation was tested with Ubuntu 18.04.
+Installation was tested with Ubuntu 20.04 and Python 3.8.
 
 ### Program
 

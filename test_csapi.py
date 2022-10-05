@@ -22,9 +22,11 @@ class MainTestCase(unittest.TestCase):
 
     @patch('builtins.open', return_value=io.StringIO('''adapter=postgresql
 encoding=utf8
-username =centerui_user
-password = centerui_pass
-database= centerui_production
+username=centerui_user
+password=centerui_pass
+database=centerui_production
+host=centerui_host
+port=centerui_port
 reconnect=true
 '''))
     def test_get_db_conf(self, mock_open):
@@ -32,23 +34,27 @@ reconnect=true
         self.assertEqual({
             'database': 'centerui_production',
             'password': 'centerui_pass',
-            'username': 'centerui_user'}, response)
+            'username': 'centerui_user',
+            'host': 'centerui_host',
+            'port': 'centerui_port'}, response)
         mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('builtins.open', side_effect=IOError)
     def test_get_db_conf_ioerr(self, mock_open):
         response = csapi.get_db_conf()
-        self.assertEqual({'database': '', 'password': '', 'username': ''}, response)
+        self.assertEqual({'database': '', 'password': '', 'username': '', 'host': '', 'port': ''}, response)
         mock_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
 
     @patch('psycopg2.connect')
     def test_get_db_connection(self, mock_pg_connect):
         csapi.get_db_connection({
             'database': 'centerui_production',
+            'host': 'centerui_host',
             'password': 'centerui_pass',
+            'port': 'centerui_port',
             'username': 'centerui_user'})
         mock_pg_connect.assert_called_with(
-            'host=localhost port=5432 dbname=centerui_production user=centerui_user '
+            'host=centerui_host port=centerui_port dbname=centerui_production user=centerui_user '
             'password=centerui_pass')
 
     def test_get_member_class_id(self):
