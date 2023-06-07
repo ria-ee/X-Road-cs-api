@@ -1,7 +1,8 @@
+---
 openapi: 3.0.0
 info:
   description: X-Road Central Server API
-  version: "1.0.0"
+  version: "1.1.0"
   title: CS API
   contact:
     email: vitali.stupin@ria.ee
@@ -40,9 +41,6 @@ paths:
                 missingParam:
                   summary: Required parameter is missing
                   value: {"code": "MISSING_PARAMETER", "msg": "Request parameter member_name is missing"}
-                invalidClass:
-                  summary: Member class is not found in Central Server
-                  value: {"code": "INVALID_MEMBER_CLASS", "msg": "Provided Member Class does not exist"}
         '409':
           description: Provided Member already exists
           content:
@@ -70,12 +68,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Response500'
               examples:
-                dbConfError:
-                  summary: Application cannot read or parse database configuration
-                  value: {"code": "DB_CONF_ERROR", "msg": "Cannot access database configuration"}
-                dbError:
-                  summary: A generic unclassified DB error occured
-                  value: {"code": "DB_ERROR", "msg": "Unclassified database error"}
+                apiError:
+                  summary: A generic unclassified API error occurred
+                  value: {"code": "API_ERROR", "msg": "Unclassified API error"}
       requestBody:
         content:
           application/json:
@@ -114,12 +109,6 @@ paths:
                 missingParam:
                   summary: Required parameter is mussing
                   value: {"code": "MISSING_PARAMETER", "msg": "Request parameter member_name is missing"}
-                invalidClass:
-                  summary: Member class is not found in Central Server
-                  value: {"code": "INVALID_MEMBER_CLASS", "msg": "Provided Member Class does not exist"}
-                ivalidMember:
-                  summary: Member class is not found in Central Server
-                  value: {"code": "INVALID_MEMBER", "msg": "Provided Member does not exist"}
         '403':
           description: Client certificate is not allowed
           content:
@@ -147,12 +136,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Response500'
               examples:
-                dbConfError:
-                  summary: Application cannot read or parse database configuration
-                  value: {"code": "DB_CONF_ERROR", "msg": "Cannot access database configuration"}
-                dbError:
-                  summary: A generic unclassified DB error occured
-                  value: {"code": "DB_ERROR", "msg": "Unclassified database error"}
+                apiError:
+                  summary: A generic unclassified API error occurred
+                  value: {"code": "API_ERROR", "msg": "Unclassified API error"}
       requestBody:
         content:
           application/json:
@@ -226,7 +212,6 @@ components:
           type: string
           enum:
             - MISSING_PARAMETER
-            - INVALID_MEMBER_CLASS
           example: MISSING_PARAMETER
         msg:
           type: string
@@ -238,8 +223,6 @@ components:
           type: string
           enum:
             - MISSING_PARAMETER
-            - INVALID_MEMBER_CLASS
-            - INVALID_MEMBER
           example: MISSING_PARAMETER
         msg:
           type: string
@@ -294,9 +277,8 @@ components:
         code:
           type: string
           enum:
-            - DB_CONF_ERROR
-            - DB_ERROR
-          example: DB_CONF_ERROR
+            - API_ERROR
+          example: API_ERROR
         msg:
           type: string
-          example: Cannot access database configuration
+          example: Unclassified API error

@@ -7,7 +7,7 @@ User=xroad
 Group=www-data
 WorkingDirectory=/opt/csapi
 Environment="PATH=/opt/csapi/venv/bin"
-ExecStart=/opt/csapi/venv/bin/gunicorn --workers 4 --bind unix:/opt/csapi/socket/csapi.sock -m 007 server:app
+ExecStart=/opt/csapi/venv/bin/gunicorn --workers 4 --bind unix:/opt/csapi/socket/csapi.sock -m 007 'csapi:create_app("/opt/csapi/config.yaml")'
 
 [Install]
 WantedBy=multi-user.target

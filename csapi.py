@@ -1,262 +1,110 @@
 #!/usr/bin/env python3
 
-"""This is a module for X-Road Central Server API.
+"""This is a module for X-Road Central Server API Wrapper.
 
 This module allows:
     * adding new member to the X-Road Central Server.
     * adding new subsystem to the X-Road Central Server.
 """
 
-__version__ = '1.0'
+__version__ = '1.1'
 
-import json
 import logging
-import re
-import psycopg2
-from flask import request, jsonify
-from flask_restful import Resource
+import logging.config
+import os
+from flask import Flask, request, jsonify
+from flask_restful import Api, Resource
+import requests
+import yaml
 
-DB_CONF_FILE = '/etc/xroad/db.properties'
-LOGGER = logging.getLogger('csapi')
+LOGGER = logging.getLogger(__name__)
+DEFAULT_CONFIG_FILE = 'config.yaml'
+DEFAULT_API_URL = 'https://localhost:4000/api/v1'
+DEFAULT_API_CA_FILE = 'ca.pem'
+DEFAULT_API_TIMEOUT = 10
+FILE_UMASK = 0o137
+
+API_ERROR_MSG = 'Unclassified API error'
+
+def load_config(config_file):
+    """Load configuration from YAML file"""
+    try:
+        with open(config_file, 'r', encoding='utf-8') as conf:
+            LOGGER.info('Loading configuration from file "%s"', config_file)
+            return yaml.safe_load(conf)
+    except IOError as err:
+        LOGGER.error('Cannot open configuration file "%s": %s', config_file, str(err))
+        return {}
+    except yaml.YAMLError as err:
+        LOGGER.error('Invalid YAML configuration file "%s": %s', config_file, str(err))
+        return {}
 
 
-def get_db_conf():
-    """Get Central Server database configuration parameters"""
-    conf = {
-        'database': '',
-        'host': '',
-        'password': '',
-        'port': '',
-        'username': ''
+def configure_app(config_file):
+    """Prepare service logging and directories using config"""
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(
+        logging.Formatter('%(asctime)s - %(process)d - %(levelname)s: %(message)s'))
+    LOGGER.addHandler(console_handler)
+    LOGGER.setLevel(logging.INFO)
+
+    config = load_config(config_file)
+
+    # Set umask for created files
+    os.umask(FILE_UMASK)
+
+    # Reconfigure logging if logging_config or log_file configuration parameters were provided
+    if config.get('logging_config'):
+        logging.config.dictConfig(config['logging_config'])
+        LOGGER.info(
+            'Configured logging using "logging_config" parameter '
+            'from "%s" configuration file', config_file)
+    elif config.get('log_file'):
+        file_handler = logging.FileHandler(config['log_file'])
+        file_handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(process)d - %(levelname)s: %(message)s'))
+        LOGGER.addHandler(file_handler)
+        LOGGER.info(
+            'Configured logging using "log_file" parameter '
+            'from "%s" configuration file', config_file)
+        LOGGER.removeHandler(console_handler)
+
+    return config
+
+
+def api_request_params(config, endpoint):
+    """Prepare parameters for API request"""
+    return {
+        'url': f'{config.get("api_url", DEFAULT_API_URL)}{endpoint}',
+        'headers': {'Authorization': f'X-Road-ApiKey token={config.get("api_key")}'},
+        'verify': config.get('api_ca_file', DEFAULT_API_CA_FILE),
+        'timeout': config.get('api_timeout', DEFAULT_API_TIMEOUT)
     }
 
-    # Getting database credentials from X-Road configuration
-    try:
-        with open(DB_CONF_FILE, 'r', encoding="utf-8") as db_conf:
-            for line in db_conf:
-                match_res = re.match('^database\\s*=\\s*(.+)$', line)
-                if match_res:
-                    conf['database'] = match_res.group(1)
 
-                match_res = re.match('^host\\s*=\\s*(.+)$', line)
-                if match_res:
-                    conf['host'] = match_res.group(1)
-
-                match_res = re.match('^password\\s*=\\s*(.+)$', line)
-                if match_res:
-                    conf['password'] = match_res.group(1)
-
-                match_res = re.match('^port\\s*=\\s*(.+)$', line)
-                if match_res:
-                    conf['port'] = match_res.group(1)
-
-                match_res = re.match('^username\\s*=\\s*(.+)$', line)
-                if match_res:
-                    conf['username'] = match_res.group(1)
-    except IOError:
-        pass
-
-    return conf
-
-
-def get_db_connection(conf):
-    """Get connection object for Central Server database"""
-    return psycopg2.connect(
-        f"host={conf['host']} port={conf['port']} dbname={conf['database']} "
-        f"user={conf['username']} password={conf['password']}")
-
-
-def get_member_class_id(cur, member_class):
-    """Get ID of member class from Central Server"""
-    cur.execute("""select id from member_classes where code=%(str)s""", {'str': member_class})
-    rec = cur.fetchone()
-    if rec:
-        return rec[0]
-    return None
-
-
-def subsystem_exists(cur, member_id, subsystem_code):
-    """Check if subsystem exists in Central Server"""
-    cur.execute(
-        """
-            select exists(
-                select * from security_server_clients
-                where type='Subsystem' and xroad_member_id=%(member_id)s
-                    and subsystem_code=%(subsystem_code)s
-            )
-        """, {'member_id': member_id, 'subsystem_code': subsystem_code})
-    return cur.fetchone()[0]
-
-
-def get_member_data(cur, class_id, member_code):
-    """Get member data from Central Server"""
-    cur.execute(
-        """
-            select id, name
-            from security_server_clients
-            where type='XRoadMember' and member_class_id=%(class_id)s
-                and member_code=%(member_code)s
-        """, {'class_id': class_id, 'member_code': member_code})
-    rec = cur.fetchone()
-    if rec:
-        return {'id': rec[0], 'name': rec[1]}
-    return None
-
-
-def get_utc_time(cur):
-    """Get current time in UTC timezone from Central Server database"""
-    cur.execute("""select current_timestamp at time zone 'UTC'""")
-    return cur.fetchone()[0]
-
-
-def add_member_identifier(cur, **kwargs):
-    """Add new X-Road member identifier to Central Server
-
-    Required keyword arguments:
-    member_class, member_code, utc_time
-    """
-    cur.execute(
-        """
-            insert into identifiers (
-                object_type, xroad_instance, member_class, member_code, type, created_at,
-                updated_at
-            ) values (
-                'MEMBER', (select value from system_parameters where key='instanceIdentifier'),
-                %(class)s, %(code)s, 'ClientId', %(time)s, %(time)s
-            ) returning id
-        """, {
-            'class': kwargs['member_class'], 'code': kwargs['member_code'],
-            'time': kwargs['utc_time']}
-    )
-    return cur.fetchone()[0]
-
-
-def add_subsystem_identifier(cur, **kwargs):
-    """Add new X-Road subsystem identifier to Central Server
-
-    Required keyword arguments:
-    member_class, member_code, subsystem_code, utc_time
-    """
-    cur.execute(
-        """
-            insert into identifiers (
-                object_type, xroad_instance, member_class, member_code, subsystem_code, type,
-                created_at, updated_at
-            ) values (
-                'SUBSYSTEM', (select value from system_parameters where key='instanceIdentifier'),
-                %(class)s, %(member_code)s, %(subsystem_code)s, 'ClientId', %(time)s, %(time)s
-            ) returning id
-        """, {
-            'class': kwargs['member_class'], 'member_code': kwargs['member_code'],
-            'subsystem_code': kwargs['subsystem_code'], 'time': kwargs['utc_time']}
-    )
-    return cur.fetchone()[0]
-
-
-def add_member_client(cur, **kwargs):
-    """Add new X-Road member client to Central Server
-
-    Required keyword arguments:
-    member_code, member_name, class_id, identifier_id, utc_time
-    """
-    cur.execute(
-        """
-            insert into security_server_clients (
-                member_code, name, member_class_id, server_client_id, type, created_at, updated_at
-            ) values (
-                %(code)s, %(name)s, %(class_id)s, %(identifier_id)s, 'XRoadMember', %(time)s,
-                %(time)s
-            )
-        """, {
-            'code': kwargs['member_code'], 'name': kwargs['member_name'],
-            'class_id': kwargs['class_id'], 'identifier_id': kwargs['identifier_id'],
-            'time': kwargs['utc_time']
-        }
-    )
-
-
-def add_subsystem_client(cur, **kwargs):
-    """Add new X-Road subsystem as a client to Central Server
-
-    Required keyword arguments:
-    subsystem_code, member_id, identifier_id, utc_time
-    """
-    cur.execute(
-        """
-            insert into security_server_clients (
-                subsystem_code, xroad_member_id, server_client_id, type, created_at, updated_at
-            ) values (
-                %(subsystem_code)s, %(member_id)s, %(identifier_id)s, 'Subsystem', %(time)s,
-                %(time)s
-            )
-        """, {
-            'subsystem_code': kwargs['subsystem_code'], 'member_id': kwargs['member_id'],
-            'identifier_id': kwargs['identifier_id'], 'time': kwargs['utc_time']
-        }
-    )
-
-
-def add_client_name(cur, **kwargs):
-    """Add new X-Road client name to Central Server
-
-    Required keyword arguments:
-    member_name, identifier_id, utc_time
-    """
-    cur.execute(
-        """
-            insert into security_server_client_names (
-                name, client_identifier_id, created_at, updated_at
-            ) values (
-                %(name)s, %(identifier_id)s, %(time)s, %(time)s
-            )
-        """, {
-            'name': kwargs['member_name'], 'identifier_id': kwargs['identifier_id'],
-            'time': kwargs['utc_time']}
-    )
-
-
-def add_member(member_class, member_code, member_name, json_data):
+def add_member(member_class, member_code, member_name, json_data, config):
     """Add new X-Road member to Central Server"""
-    conf = get_db_conf()
-    if not conf['username'] or not conf['password'] or not conf['database']:
-        LOGGER.error('DB_CONF_ERROR: Cannot access database configuration')
+    params = api_request_params(config, '/members')
+    payload = {
+        'member_name': member_name,
+        'member_id': {
+            'member_class': member_class,
+            'member_code': member_code
+        }
+    }
+    req = requests.post(
+        params['url'], headers=params['headers'], verify=params['verify'],
+        timeout=params['timeout'], json=payload)
+
+    if req.status_code == 409:
+        LOGGER.warning(
+            'MEMBER_EXISTS: Provided Member already exists '
+            '(Request: %s)', json_data)
         return {
-            'http_status': 500, 'code': 'DB_CONF_ERROR',
-            'msg': 'Cannot access database configuration'}
+            'http_status': 409, 'code': 'MEMBER_EXISTS',
+            'msg': 'Provided Member already exists'}
 
-    with get_db_connection(conf) as conn:
-        with conn.cursor() as cur:
-            class_id = get_member_class_id(cur, member_class)
-            if class_id is None:
-                LOGGER.warning(
-                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist '
-                    '(Request: %s)', json_data)
-                return {
-                    'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
-                    'msg': 'Provided Member Class does not exist'}
-
-            if get_member_data(cur, class_id, member_code) is not None:
-                LOGGER.warning(
-                    'MEMBER_EXISTS: Provided Member already exists '
-                    '(Request: %s)', json_data)
-                return {
-                    'http_status': 409, 'code': 'MEMBER_EXISTS',
-                    'msg': 'Provided Member already exists'}
-
-            # Timestamps must be in UTC timezone
-            utc_time = get_utc_time(cur)
-
-            identifier_id = add_member_identifier(
-                cur, member_class=member_class, member_code=member_code, utc_time=utc_time)
-
-            add_member_client(
-                cur, member_code=member_code, member_name=member_name, class_id=class_id,
-                identifier_id=identifier_id, utc_time=utc_time)
-
-            add_client_name(
-                cur, member_name=member_name, identifier_id=identifier_id, utc_time=utc_time)
-
-        conn.commit()
+    req.raise_for_status()
 
     LOGGER.info(
         'Added new Member: member_code=%s, member_name=%s, member_class=%s',
@@ -265,65 +113,48 @@ def add_member(member_class, member_code, member_name, json_data):
     return {'http_status': 201, 'code': 'CREATED', 'msg': 'New Member added'}
 
 
-def add_subsystem(member_class, member_code, subsystem_code, json_data):
+def add_subsystem(member_class, member_code, subsystem_code, json_data, config):
     """Add new X-Road subsystem to Central Server"""
-    conf = get_db_conf()
-    if not conf['username'] or not conf['password'] or not conf['database']:
-        LOGGER.error('DB_CONF_ERROR: Cannot access database configuration')
+    params = api_request_params(config, '/subsystems')
+    payload = {
+        'subsystem_id': {
+            'member_class': member_class,
+            'member_code': member_code,
+            'subsystem_code': subsystem_code
+        }
+    }
+    req = requests.post(
+        params['url'], headers=params['headers'], verify=params['verify'],
+        timeout=params['timeout'], json=payload)
+
+    if req.status_code == 409:
+        LOGGER.warning(
+            'SUBSYSTEM_EXISTS: Provided Subsystem already exists '
+            '(Request: %s)', json_data)
         return {
-            'http_status': 500, 'code': 'DB_CONF_ERROR',
-            'msg': 'Cannot access database configuration'}
+            'http_status': 409, 'code': 'SUBSYSTEM_EXISTS',
+            'msg': 'Provided Subsystem already exists'}
 
-    with get_db_connection(conf) as conn:
-        with conn.cursor() as cur:
-            class_id = get_member_class_id(cur, member_class)
-            if class_id is None:
-                LOGGER.warning(
-                    'INVALID_MEMBER_CLASS: Provided Member Class does not exist '
-                    '(Request: %s)', json_data)
-                return {
-                    'http_status': 400, 'code': 'INVALID_MEMBER_CLASS',
-                    'msg': 'Provided Member Class does not exist'}
-
-            member_data = get_member_data(cur, class_id, member_code)
-            if member_data is None:
-                LOGGER.warning(
-                    'INVALID_MEMBER: Provided Member does not exist '
-                    '(Request: %s)', json_data)
-                return {
-                    'http_status': 400, 'code': 'INVALID_MEMBER',
-                    'msg': 'Provided Member does not exist'}
-
-            if subsystem_exists(cur, member_data['id'], subsystem_code):
-                LOGGER.warning(
-                    'SUBSYSTEM_EXISTS: Provided Subsystem already exists '
-                    '(Request: %s)', json_data)
-                return {
-                    'http_status': 409, 'code': 'SUBSYSTEM_EXISTS',
-                    'msg': 'Provided Subsystem already exists'}
-
-            # Timestamps must be in UTC timezone
-            utc_time = get_utc_time(cur)
-
-            identifier_id = add_subsystem_identifier(
-                cur, member_class=member_class, member_code=member_code,
-                subsystem_code=subsystem_code, utc_time=utc_time)
-
-            add_subsystem_client(
-                cur, subsystem_code=subsystem_code, member_id=member_data['id'],
-                identifier_id=identifier_id, utc_time=utc_time)
-
-            add_client_name(
-                cur, member_name=member_data['name'], identifier_id=identifier_id,
-                utc_time=utc_time)
-
-        conn.commit()
+    req.raise_for_status()
 
     LOGGER.info(
         'Added new Subsystem: member_class=%s, member_code=%s, subsystem_code=%s',
         member_class, member_code, subsystem_code)
-
     return {'http_status': 201, 'code': 'CREATED', 'msg': 'New Subsystem added'}
+
+
+def test_api(config):
+    """Test if Central Server API is alive"""
+    params = api_request_params(config, '/system/status')
+    req = requests.get(
+        params['url'], headers=params['headers'], verify=params['verify'],
+        timeout=params['timeout'])
+
+    req.raise_for_status()
+
+    return {
+        'http_status': 200, 'code': 'OK',
+        'msg': 'API is ready'}
 
 
 def make_response(data):
@@ -355,20 +186,6 @@ def get_input(json_data, param_name):
     return param, None
 
 
-def load_config(config_file):
-    """Load configuration from JSON file"""
-    try:
-        with open(config_file, 'r', encoding="utf-8") as conf:
-            LOGGER.info('Configuration loaded from file "%s"', config_file)
-            return json.load(conf)
-    except IOError as err:
-        LOGGER.error('Cannot load configuration file "%s": %s', config_file, str(err))
-        return None
-    except json.JSONDecodeError as err:
-        LOGGER.error('Invalid JSON configuration file "%s": %s', config_file, str(err))
-        return None
-
-
 def check_client(config, client_dn):
     """Check if client dn is in whitelist"""
     # If config is None then all clients are not allowed
@@ -395,28 +212,7 @@ def incorrect_client(client_dn):
         'msg': f'Client certificate is not allowed: {client_dn}'})
 
 
-def test_db():
-    """Add new X-Road subsystem to Central Server"""
-    conf = get_db_conf()
-    if not conf['username'] or not conf['password'] or not conf['database']:
-        LOGGER.error('DB_CONF_ERROR: Cannot access database configuration')
-        return {
-            'http_status': 500, 'code': 'DB_CONF_ERROR',
-            'msg': 'Cannot access database configuration'}
-
-    with get_db_connection(conf) as conn:
-        with conn.cursor() as cur:
-            cur.execute("""select 1 from system_parameters where key='instanceIdentifier'""")
-            rec = cur.fetchone()
-            if rec:
-                return {
-                    'http_status': 200, 'code': 'OK',
-                    'msg': 'API is ready'}
-
-    return {'http_status': 500, 'code': 'DB_ERROR', 'msg': 'Unexpected DB state'}
-
-
-class MemberApi(Resource):
+class MemberApi(Resource):  # pylint: disable=too-few-public-methods
     """Member API class for Flask"""
     def __init__(self, config):
         self.config = config
@@ -445,17 +241,17 @@ class MemberApi(Resource):
             return make_response(fault_response)
 
         try:
-            response = add_member(member_class, member_code, member_name, json_data)
-        except psycopg2.Error as err:
-            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
+            response = add_member(member_class, member_code, member_name, json_data, self.config)
+        except requests.exceptions.RequestException as err:
+            LOGGER.error('API_ERROR: %s: %s', API_ERROR_MSG, err)
             response = {
-                'http_status': 500, 'code': 'DB_ERROR',
-                'msg': 'Unclassified database error'}
+                'http_status': 500, 'code': 'API_ERROR',
+                'msg': API_ERROR_MSG}
 
         return make_response(response)
 
 
-class SubsystemApi(Resource):
+class SubsystemApi(Resource):  # pylint: disable=too-few-public-methods
     """Subsystem API class for Flask"""
     def __init__(self, config):
         self.config = config
@@ -484,32 +280,47 @@ class SubsystemApi(Resource):
             return make_response(fault_response)
 
         try:
-            response = add_subsystem(member_class, member_code, subsystem_code, json_data)
-        except psycopg2.Error as err:
-            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
+            response = add_subsystem(
+                member_class, member_code, subsystem_code, json_data, self.config)
+        except requests.exceptions.RequestException as err:
+            LOGGER.error('API_ERROR: %s: %s', API_ERROR_MSG, err)
             response = {
-                'http_status': 500, 'code': 'DB_ERROR',
-                'msg': 'Unclassified database error'}
+                'http_status': 500, 'code': 'API_ERROR',
+                'msg': API_ERROR_MSG}
 
         return make_response(response)
 
 
-class StatusApi(Resource):
+class StatusApi(Resource):  # pylint: disable=too-few-public-methods
     """Status API class for Flask"""
     def __init__(self, config):
         self.config = config
 
-    @staticmethod
-    def get():
+    def get(self):
         """GET method"""
         LOGGER.info('Incoming status request')
 
         try:
-            response = test_db()
-        except psycopg2.Error as err:
-            LOGGER.error('DB_ERROR: Unclassified database error: %s', err)
+            response = test_api(self.config)
+        except requests.exceptions.RequestException as err:
+            LOGGER.error('API_ERROR: %s: %s', API_ERROR_MSG, err)
             response = {
-                'http_status': 500, 'code': 'DB_ERROR',
-                'msg': 'Unclassified database error'}
+                'http_status': 500, 'code': 'API_ERROR',
+                'msg': API_ERROR_MSG}
 
         return make_response(response)
+
+
+def create_app(config_file=DEFAULT_CONFIG_FILE):
+    """Create Flask application"""
+    config = configure_app(config_file)
+
+    app = Flask(__name__)
+    api = Api(app)
+    api.add_resource(MemberApi, '/member', resource_class_kwargs={'config': config})
+    api.add_resource(SubsystemApi, '/subsystem', resource_class_kwargs={'config': config})
+    api.add_resource(StatusApi, '/status', resource_class_kwargs={'config': config})
+
+    LOGGER.info('Starting Central Server API v%s', __version__)
+
+    return app

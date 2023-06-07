@@ -3,6 +3,7 @@
 venv*/
 .coverage
 htmlcov/
+coverage.xml
 
 # Python byte-compiled / optimized / DLL files
 __pycache__/
@@ -10,3 +11,6 @@ __pycache__/
 *$py.class
 
 config.json
+config.yaml
+csapi.log
+ca.pem

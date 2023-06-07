@@ -1,0 +1,60 @@
+---
+# If "true" then disable certificate DN check, default value: "false"
+allow_all: false
+
+# List of allowed certificate DN's
+allowed:
+  - OU=XTSS,O=RIA,C=EE
+
+# URL of Central Server Management API
+api_url: https://localhost:4000/api/v1
+
+# ROOT CA of Central Server certificate
+api_ca_file: ca.pem
+
+# Central Server Management API key
+api_key: example-api-key
+
+# Timeout for Central Server Management API Requests
+api_timeout: 10
+
+# Log to file instead of stdout if 'log_file' is set and 'logging_config' is not provided
+# Note that logrotate is not supported with this logging mode
+log_file: /var/log/xroad/csapi.log
+
+# Python logging configuration, overrides 'log_file' parameter
+# https://docs.python.org/3/library/logging.config.html#logging.config.dictConfig
+# NB! Python logging does not support logging from multiple processes to a single file
+# https://docs.python.org/3/howto/logging-cookbook.html#logging-to-a-single-file-from-multiple-processes
+# SocketHandler or StreamHandler are preferred logging classes that should work reliably
+# FileHandler or WatchedFileHandler (with logrotate) may work depending on your system
+# Rotating file handlers will not work if you have more than one process running
+# logging_config:
+#   version: 1
+#   formatters:
+#     standard:
+#       format: "%(asctime)s - %(process)d - %(levelname)s: %(message)s"
+#   handlers:
+#     console:
+#       level: INFO
+#       formatter: standard
+#       class: logging.StreamHandler
+#       stream: ext://sys.stderr
+#     file:
+#       level: INFO
+#       formatter: standard
+#       class: logging.handlers.WatchedFileHandler
+#       filename: /var/log/xroad/csapi.log
+#   loggers:
+#     "":
+#       handlers:
+#         - console
+#         - file
+#       level: INFO
+#       propagate: true
+#     rights:
+#       handlers:
+#         - console
+#         - file
+#       level: INFO
+#       propagate: false

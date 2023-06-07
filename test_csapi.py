@@ -1,11 +1,10 @@
-import io
 import json
 import unittest
 import csapi
-import psycopg2
+import requests
 from flask import Flask, jsonify
 from flask_restful import Api
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch, MagicMock, mock_open, call
 
 
 class MainTestCase(unittest.TestCase):
@@ -20,513 +19,225 @@ class MainTestCase(unittest.TestCase):
         self.api.add_resource(csapi.StatusApi, '/status', resource_class_kwargs={
             'config': {'allow_all': True}})
 
-    @patch('builtins.open', return_value=io.StringIO('''adapter=postgresql
-encoding=utf8
-username=centerui_user
-password=centerui_pass
-database=centerui_production
-host=centerui_host
-port=centerui_port
-reconnect=true
-'''))
-    def test_get_db_conf(self, mock_builtin_open):
-        response = csapi.get_db_conf()
+    def test_load_config(self):
+        # Valid yaml
+        with patch('builtins.open', mock_open(read_data=json.dumps({'allow_all': True}))) as m:
+            self.assertEqual({'allow_all': True}, csapi.load_config('FILENAME'))
+            m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
+        # Invalid yaml
+        with patch('builtins.open', mock_open(read_data='INVALID_YAML: {}x')) as m:
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                self.assertEqual({}, csapi.load_config('FILENAME'))
+                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
+                self.assertIn(
+                    'INFO:csapi:Loading configuration from file "FILENAME"', cm.output)
+                self.assertIn(
+                    'ERROR:csapi:Invalid YAML configuration file "FILENAME"', cm.output[1])
+        # Invalid file
+        with patch('builtins.open', mock_open()) as m:
+            m.side_effect = IOError
+            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
+                self.assertEqual({}, csapi.load_config('FILENAME'))
+                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
+                self.assertEqual([
+                    'ERROR:csapi:Cannot open configuration file "FILENAME": '], cm.output)
+
+    @patch('csapi.load_config', return_value={'log_file': 'LOG_FILE'})
+    @patch('os.umask')
+    @patch('csapi.LOGGER')
+    @patch('logging.FileHandler')
+    def test_configure_app(
+            self, mock_log_file_handler, mock_logger, mock_os_umask, mock_load_config):
+        config = csapi.configure_app('CONFIG_FILE')
+        mock_log_file_handler.assert_called_with('LOG_FILE')
+        mock_logger.addHandler.assert_has_calls(mock_log_file_handler)
+        mock_os_umask.assert_called_with(0o137)
+        mock_load_config.assert_called_with('CONFIG_FILE')
+        self.assertEqual({'log_file': 'LOG_FILE'}, config)
+
+    @patch('csapi.load_config', return_value={
+        'log_file': 'LOG_FILE', 'logging_config': 'LOGGING_CONFIG'})
+    @patch('os.umask')
+    @patch('csapi.LOGGER')
+    @patch('logging.FileHandler')
+    @patch('logging.config.dictConfig')
+    def test_configure_app_logging_config(
+            self, mock_dict_config, mock_log_file_handler, mock_logger,
+            mock_os_umask, mock_load_config):
+        config = csapi.configure_app('CONFIG_FILE')
+        mock_log_file_handler.assert_not_called()
+        mock_dict_config.assert_called_with('LOGGING_CONFIG')
+        mock_logger.addHandler.assert_has_calls(mock_log_file_handler)
+        mock_os_umask.assert_called_with(0o137)
+        mock_load_config.assert_called_with('CONFIG_FILE')
+        self.assertEqual({'log_file': 'LOG_FILE', 'logging_config': 'LOGGING_CONFIG'}, config)
+
+    @patch('csapi.load_config', return_value={'a': 'b'})
+    @patch('os.umask')
+    @patch('csapi.LOGGER')
+    @patch('logging.StreamHandler')
+    def test_configure_app_no_log_file(
+            self, mock_console_log_handler, mock_logger, mock_os_umask, mock_load_config):
+        config = csapi.configure_app('CONFIG_FILE')
+        mock_console_log_handler.assert_called_with()
+        mock_logger.addHandler.assert_has_calls(mock_console_log_handler)
+        mock_os_umask.assert_called_with(0o137)
+        mock_load_config.assert_called_with('CONFIG_FILE')
+        self.assertEqual({'a': 'b'}, config)
+
+    def test_api_request_params(self):
+        # Default values
         self.assertEqual({
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user',
-            'host': 'centerui_host',
-            'port': 'centerui_port'}, response)
-        mock_builtin_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
-
-    @patch('builtins.open', side_effect=IOError)
-    def test_get_db_conf_ioerr(self, mock_builtin_open):
-        response = csapi.get_db_conf()
-        self.assertEqual({'database': '', 'password': '', 'username': '', 'host': '', 'port': ''}, response)
-        mock_builtin_open.assert_called_with('/etc/xroad/db.properties', 'r', encoding='utf-8')
-
-    @patch('psycopg2.connect')
-    def test_get_db_connection(self, mock_pg_connect):
-        csapi.get_db_connection({
-            'database': 'centerui_production',
-            'host': 'centerui_host',
-            'password': 'centerui_pass',
-            'port': 'centerui_port',
-            'username': 'centerui_user'})
-        mock_pg_connect.assert_called_with(
-            'host=centerui_host port=centerui_port dbname=centerui_production user=centerui_user '
-            'password=centerui_pass')
-
-    def test_get_member_class_id(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
-        cur.execute.assert_called_with(
-            'select id from member_classes where code=%(str)s', {'str': 'MEMBER_CLASS'})
-        cur.fetchone.assert_called_once()
-
-    def test_get_member_class_id_empty(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[])
-        self.assertEqual(None, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
-
-    def test_get_member_class_id_none(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=None)
-        self.assertEqual(None, csapi.get_member_class_id(cur, 'MEMBER_CLASS'))
-
-    def test_subsystem_exists(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[True])
-        self.assertEqual(True, csapi.subsystem_exists(cur, 123, 'SUBSYSTEM_CODE'))
-        cur.execute.assert_called_with(
-            "\n            select exists(\n                select * from security_server_clients\n"
-            "                where type='Subsystem' and xroad_member_id=%(member_id)s\n"
-            "                    and subsystem_code=%(subsystem_code)s\n"
-            "            )\n        ", {'member_id': 123, 'subsystem_code': 'SUBSYSTEM_CODE'})
-        cur.fetchone.assert_called_once()
-
-    def test_get_member_data(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[1234, 'M_NAME'])
+            'headers': {'Authorization': 'X-Road-ApiKey token=None'},
+            'timeout': 10,
+            'url': 'https://localhost:4000/api/v1/ENDPOINT',
+            'verify': 'ca.pem'}, csapi.api_request_params({}, '/ENDPOINT'))
+        # Values from config
         self.assertEqual(
-            {'id': 1234, 'name': 'M_NAME'}, csapi.get_member_data(cur, 123, 'MEMBER_CODE'))
-        cur.execute.assert_called_with(
-            "\n            select id, name\n            from security_server_clients\n"
-            "            where type='XRoadMember' and member_class_id=%(class_id)s\n"
-            "                and member_code=%(member_code)s\n"
-            "        ", {'class_id': 123, 'member_code': 'MEMBER_CODE'})
-        cur.fetchone.assert_called_once()
+            {
+                'headers': {'Authorization': 'X-Road-ApiKey token=SECRET_API_TOKEN'},
+                'timeout': 20,
+                'url': 'https://CENTRALSERVER:4000/api/v1/ENDPOINT',
+                'verify': 'ROOT_CA.pem'
+            },
+            csapi.api_request_params({
+                "api_url": "https://CENTRALSERVER:4000/api/v1",
+                "api_ca_file": "ROOT_CA.pem",
+                "api_key": "SECRET_API_TOKEN",
+                "api_timeout": 20
+            }, '/ENDPOINT'))
 
-    def test_get_member_data_no_member(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=None)
-        self.assertEqual(None, csapi.get_member_data(cur, 123, 'MEMBER_CODE'))
-        cur.execute.assert_called_with(
-            "\n            select id, name\n            from security_server_clients\n"
-            "            where type='XRoadMember' and member_class_id=%(class_id)s\n"
-            "                and member_code=%(member_code)s\n"
-            "        ", {'class_id': 123, 'member_code': 'MEMBER_CODE'})
-        cur.fetchone.assert_called_once()
-
-    def test_get_utc_time(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=['TIME'])
-        self.assertEqual('TIME', csapi.get_utc_time(cur))
-        cur.execute.assert_called_with("select current_timestamp at time zone 'UTC'")
-        cur.fetchone.assert_called_once()
-
-    def test_add_member_identifier(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, csapi.add_member_identifier(
-            cur, member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME'))
-        cur.execute.assert_called_with(
-            "\n            insert into identifiers (\n                object_type, "
-            "xroad_instance, member_class, member_code, type, created_at,\n                "
-            "updated_at\n            ) values (\n                'MEMBER', "
-            "(select value from system_parameters where key='instanceIdentifier'),\n"
-            "                %(class)s, %(code)s, 'ClientId', %(time)s, %(time)s\n            ) "
-            "returning id\n        ", {
-                'class': 'MEMBER_CLASS', 'code': 'MEMBER_CODE', 'time': 'TIME'})
-        cur.fetchone.assert_called_once()
-
-    def test_add_subsystem_identifier(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        cur.fetchone = MagicMock(return_value=[12345])
-        self.assertEqual(12345, csapi.add_subsystem_identifier(
-            cur, member_class='MEMBER_CLASS', member_code='MEMBER_CODE',
-            subsystem_code='SUBSYSTEM_CODE', utc_time='TIME'))
-        cur.execute.assert_called_with(
-            "\n            insert into identifiers (\n                object_type, "
-            "xroad_instance, member_class, member_code, subsystem_code, type,\n"
-            "                created_at, updated_at\n            ) values (\n"
-            "                'SUBSYSTEM', "
-            "(select value from system_parameters where key='instanceIdentifier'),\n"
-            "                %(class)s, %(member_code)s, %(subsystem_code)s, 'ClientId', %(time)s,"
-            " %(time)s\n            ) returning id\n        ", {
-                'class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                'subsystem_code': 'SUBSYSTEM_CODE', 'time': 'TIME'})
-        cur.fetchone.assert_called_once()
-
-    def test_add_member_client(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        self.assertEqual(None, csapi.add_member_client(
-            cur, member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id='CLASS_ID',
-            identifier_id='IDENT_ID', utc_time='TIME'))
-        cur.execute.assert_called_with(
-            "\n            insert into security_server_clients (\n                member_code, "
-            "name, member_class_id, server_client_id, type, created_at, updated_at\n            ) "
-            "values (\n                %(code)s, %(name)s, %(class_id)s, %(identifier_id)s, "
-            "'XRoadMember', %(time)s,\n                %(time)s\n            )\n        ", {
-                'code': 'MEMBER_CODE', 'name': 'MEMBER_NAME', 'class_id': 'CLASS_ID',
-                'identifier_id': 'IDENT_ID', 'time': 'TIME'})
-
-    def test_add_subsystem_client(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        self.assertEqual(None, csapi.add_subsystem_client(
-            cur, subsystem_code='SUBSYSTEM_CODE', member_id='MEMBER_ID', identifier_id='IDENT_ID',
-            utc_time='TIME'))
-        cur.execute.assert_called_with(
-            "\n            insert into security_server_clients (\n                subsystem_code, "
-            "xroad_member_id, server_client_id, type, created_at, updated_at\n            ) "
-            "values (\n                %(subsystem_code)s, %(member_id)s, %(identifier_id)s, "
-            "'Subsystem', %(time)s,\n                %(time)s\n            )\n        ", {
-                'subsystem_code': 'SUBSYSTEM_CODE', 'member_id': 'MEMBER_ID',
-                'identifier_id': 'IDENT_ID', 'time': 'TIME'})
-
-    def test_add_client_name(self):
-        cur = MagicMock()
-        cur.execute = MagicMock()
-        self.assertEqual(None, csapi.add_client_name(
-            cur, member_name='MEMBER_NAME', identifier_id='IDENT_ID', utc_time='TIME'))
-        cur.execute.assert_called_with(
-            '\n            insert into security_server_client_names (\n                name, '
-            'client_identifier_id, created_at, updated_at\n            ) values (\n'
-            '                %(name)s, %(identifier_id)s, %(time)s, %(time)s\n            )\n'
-            '        ', {'name': 'MEMBER_NAME', 'identifier_id': 'IDENT_ID', 'time': 'TIME'})
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': '',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_member_no_database(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': '',
-            'username': 'centerui_user'})
-    def test_add_member_no_password(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': ''})
-    def test_add_member_no_username(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_member_class_id', return_value=None)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_member_no_class(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'INVALID_MEMBER_CLASS', 'http_status': 400,
-                    'msg': 'Provided Member Class does not exist'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
-            self.assertEqual([
-                'WARNING:csapi:INVALID_MEMBER_CLASS: Provided Member Class does not exist '
-                '(Request: JSON_DATA)'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-
-    @patch('csapi.get_member_data', return_value={'id': 111, 'name': 'M_NAME'})
-    @patch('csapi.get_member_class_id', return_value=12345)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_member_member_exists(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data):
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_member_member_exists(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 409
+        mock_requests.post.return_value = mock_response
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'MEMBER_EXISTS', 'http_status': 409,
                     'msg': 'Provided Member already exists'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
+                csapi.add_member(
+                    'MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA', {'CONFIG': 'VAL'}))
             self.assertEqual([
                 'WARNING:csapi:MEMBER_EXISTS: Provided Member already exists (Request: '
                 'JSON_DATA)'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_get_member_data.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
+            mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/members')
+            mock_requests.post.assert_called_with(
+                'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+                json={'member_name': 'MEMBER_NAME', 'member_id': {
+                    'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE'}})
 
-    @patch('csapi.add_client_name')
-    @patch('csapi.add_member_client')
-    @patch('csapi.add_member_identifier', return_value=123456)
-    @patch('csapi.get_utc_time', return_value='TIME')
-    @patch('csapi.get_member_data', return_value=None)
-    @patch('csapi.get_member_class_id', return_value=12345)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_member_ok(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data, mock_get_utc_time, mock_add_member_identifier,
-            mock_add_member_client, mock_add_client_name):
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_member_api_error(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = requests.exceptions.RequestException('ERROR')
+        mock_requests.post.return_value = mock_response
+        with self.assertRaises(requests.exceptions.RequestException):
+            csapi.add_member(
+                'MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA', {'CONFIG': 'VAL'})
+        mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/members')
+        mock_requests.post.assert_called_with(
+            'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+            json={'member_name': 'MEMBER_NAME', 'member_id': {
+                'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE'}})
+
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_member_ok(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_requests.post.return_value = mock_response
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'CREATED', 'http_status': 201,
                     'msg': 'New Member added'},
-                csapi.add_member('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA'))
+                csapi.add_member(
+                    'MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', 'JSON_DATA', {'CONFIG': 'VAL'}))
             self.assertEqual([
                 'INFO:csapi:Added new Member: member_code=MEMBER_CODE, '
                 'member_name=MEMBER_NAME, member_class=MEMBER_CLASS'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_get_member_data.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
-            mock_get_utc_time.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__())
-            mock_add_member_identifier.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                member_class='MEMBER_CLASS', member_code='MEMBER_CODE', utc_time='TIME')
-            mock_add_member_client.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                member_code='MEMBER_CODE', member_name='MEMBER_NAME', class_id=12345,
-                identifier_id=123456, utc_time='TIME')
-            mock_add_client_name.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                member_name='MEMBER_NAME', identifier_id=123456, utc_time='TIME')
+            mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/members')
+            mock_requests.post.assert_called_with(
+                'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+                json={'member_name': 'MEMBER_NAME', 'member_id': {
+                    'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE'}})
 
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': '',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_subsystem_no_database(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': '',
-            'username': 'centerui_user'})
-    def test_add_subsystem_no_password(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': ''})
-    def test_add_subsystem_no_username(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_member_class_id', return_value=None)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_subsystem_no_class(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'INVALID_MEMBER_CLASS', 'http_status': 400,
-                    'msg': 'Provided Member Class does not exist'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
-            self.assertEqual([
-                'WARNING:csapi:INVALID_MEMBER_CLASS: Provided Member Class does not exist '
-                '(Request: JSON_DATA)'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-
-    @patch('csapi.get_member_data', return_value=None)
-    @patch('csapi.get_member_class_id', return_value=12345)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_subsystem_member_does_not_exist(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'INVALID_MEMBER', 'http_status': 400,
-                    'msg': 'Provided Member does not exist'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
-            self.assertEqual([
-                'WARNING:csapi:INVALID_MEMBER: Provided Member does not exist (Request: '
-                'JSON_DATA)'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_get_member_data.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
-
-    @patch('csapi.subsystem_exists', return_value=True)
-    @patch('csapi.get_member_data', return_value={'id': 111, 'name': 'M_NAME'})
-    @patch('csapi.get_member_class_id', return_value=12345)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_member_subsystem_exists(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data, mock_subsystem_exists):
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_subsystem_subsystem_exists(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 409
+        mock_requests.post.return_value = mock_response
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'SUBSYSTEM_EXISTS', 'http_status': 409,
                     'msg': 'Provided Subsystem already exists'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
+                csapi.add_subsystem(
+                    'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE',
+                    'JSON_DATA', {'CONFIG': 'VAL'}))
             self.assertEqual([
                 'WARNING:csapi:SUBSYSTEM_EXISTS: Provided Subsystem already exists (Request: '
                 'JSON_DATA)'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_get_member_data.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
-            mock_subsystem_exists.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 111, 'SUBSYSTEM_CODE')
+            mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/subsystems')
+            mock_requests.post.assert_called_with(
+                'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+                json={'subsystem_id': {
+                    'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
+                    'subsystem_code': 'SUBSYSTEM_CODE'}})
 
-    @patch('csapi.add_client_name')
-    @patch('csapi.add_subsystem_client')
-    @patch('csapi.add_subsystem_identifier', return_value=123456)
-    @patch('csapi.get_utc_time', return_value='TIME')
-    @patch('csapi.subsystem_exists', return_value=False)
-    @patch('csapi.get_member_data', return_value={'id': 111, 'name': 'M_NAME'})
-    @patch('csapi.get_member_class_id', return_value=12345)
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_add_subsystem_ok(
-            self, mock_get_db_conf, mock_get_db_connection, mock_get_member_class_id,
-            mock_get_member_data, mock_subsystem_exists, mock_get_utc_time,
-            mock_add_subsystem_identifier, mock_add_subsystem_client, mock_add_client_name):
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_subsystem_api_error(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.raise_for_status.side_effect = requests.exceptions.RequestException('ERROR')
+        mock_requests.post.return_value = mock_response
+        with self.assertRaises(requests.exceptions.RequestException):
+            csapi.add_subsystem(
+                'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE',
+                'JSON_DATA', {'CONFIG': 'VAL'})
+        mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/subsystems')
+        mock_requests.post.assert_called_with(
+            'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+            json={'subsystem_id': {
+                'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
+                'subsystem_code': 'SUBSYSTEM_CODE'}})
+
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_add_subsystem_ok(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_requests.post.return_value = mock_response
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
             self.assertEqual(
                 {
                     'code': 'CREATED', 'http_status': 201,
                     'msg': 'New Subsystem added'},
-                csapi.add_subsystem('MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', 'JSON_DATA'))
+                csapi.add_subsystem(
+                    'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE',
+                    'JSON_DATA', {'CONFIG': 'VAL'}))
             self.assertEqual([
                 'INFO:csapi:Added new Subsystem: member_class=MEMBER_CLASS, '
                 'member_code=MEMBER_CODE, subsystem_code=SUBSYSTEM_CODE'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_called_with({
-                'database': 'centerui_production', 'password': 'centerui_pass',
-                'username': 'centerui_user'})
-            mock_get_member_class_id.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 'MEMBER_CLASS')
-            mock_get_member_data.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 12345, 'MEMBER_CODE')
-            mock_subsystem_exists.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(), 111, 'SUBSYSTEM_CODE')
-            mock_get_utc_time.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__())
-            mock_add_subsystem_identifier.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                member_class='MEMBER_CLASS', member_code='MEMBER_CODE',
-                subsystem_code='SUBSYSTEM_CODE', utc_time='TIME')
-            mock_add_subsystem_client.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                identifier_id=123456, member_id=111, subsystem_code='SUBSYSTEM_CODE',
-                utc_time='TIME')
-            mock_add_client_name.assert_called_with(
-                mock_get_db_connection().__enter__().cursor().__enter__(),
-                member_name='M_NAME', identifier_id=123456, utc_time='TIME')
+            mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/subsystems')
+            mock_requests.post.assert_called_with(
+                'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT',
+                json={'subsystem_id': {
+                    'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
+                    'subsystem_code': 'SUBSYSTEM_CODE'}})
 
     def test_make_response(self):
         with self.app.app_context():
@@ -562,29 +273,6 @@ reconnect=true
                 'WARNING:csapi:MISSING_PARAMETER: Request parameter member_code is missing '
                 "(Request: {'member_name': 'MEMBER_NAME', 'member_class': 'MEMBER_CLASS'})"],
                 cm.output)
-
-    def test_load_config(self):
-        # Valid json
-        with patch('builtins.open', mock_open(read_data=json.dumps({'allow_all': True}))) as m:
-            self.assertEqual({'allow_all': True}, csapi.load_config('FILENAME'))
-            m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
-        # Invalid json
-        with patch('builtins.open', mock_open(read_data='NOT_JSON')) as m:
-            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-                self.assertEqual(None, csapi.load_config('FILENAME'))
-                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
-                self.assertEqual([
-                    'INFO:csapi:Configuration loaded from file "FILENAME"',
-                    'ERROR:csapi:Invalid JSON configuration file "FILENAME": Expecting value: '
-                    'line 1 column 1 (char 0)'], cm.output)
-        # Invalid file
-        with patch('builtins.open', mock_open()) as m:
-            m.side_effect = IOError
-            with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-                self.assertEqual(None, csapi.load_config('FILENAME'))
-                m.assert_called_once_with('FILENAME', 'r', encoding='utf-8')
-                self.assertEqual([
-                    'ERROR:csapi:Cannot load configuration file "FILENAME": '], cm.output)
 
     def test_check_client(self):
         self.assertEqual(False, csapi.check_client(None, 'CLIENT_DN'))
@@ -686,8 +374,8 @@ reconnect=true
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                     "'msg': 'Request parameter member_name is missing'}"], cm.output)
 
-    @patch('csapi.add_member', side_effect=psycopg2.Error('DB_ERROR_MSG'))
-    def test_member_db_error_handled(self, mock_add_member):
+    @patch('csapi.add_member', side_effect=requests.exceptions.RequestException('API_ERROR_MSG'))
+    def test_member_api_error_handled(self, mock_add_member):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
@@ -696,45 +384,45 @@ reconnect=true
                 self.assertEqual(response.status_code, 500)
                 self.assertEqual(
                     jsonify({
-                        'code': 'DB_ERROR',
-                        'msg': 'Unclassified database error'}).json,
+                        'code': 'API_ERROR',
+                        'msg': 'Unclassified API error'}).json,
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
-                    "'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
+                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
+                    "'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
                     'INFO:csapi:Client DN: None',
-                    'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
-                    "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
-                    "'Unclassified database error'}"], cm.output)
+                    'ERROR:csapi:API_ERROR: Unclassified API error: API_ERROR_MSG',
+                    "INFO:csapi:Response: {'http_status': 500, 'code': 'API_ERROR', 'msg': "
+                    "'Unclassified API error'}"], cm.output)
                 mock_add_member.assert_called_with('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', {
                     'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                    'member_name': 'MEMBER_NAME'})
+                    'member_name': 'MEMBER_NAME'}, {'allow_all': True})
 
     @patch('csapi.add_member', return_value={
-        'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
+        'http_status': 201, 'code': 'OK', 'msg': 'New Member added'})
     def test_member_ok_query(self, mock_add_member):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/member', data=json.dumps({
                     'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
                     'member_name': 'MEMBER_NAME'}))
-                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.status_code, 201)
                 self.assertEqual(
                     jsonify({
                         'code': 'OK',
-                        'msg': 'All Correct'}).json,
+                        'msg': 'New Member added'}).json,
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
-                    "'member_code': 'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
+                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
+                    "'MEMBER_CODE', 'member_name': 'MEMBER_NAME'}",
                     'INFO:csapi:Client DN: None',
-                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
-                    "Correct'}"], cm.output)
+                    "INFO:csapi:Response: {'http_status': 201, 'code': 'OK', 'msg': 'New Member "
+                    "added'}"], cm.output)
                 mock_add_member.assert_called_with('MEMBER_CLASS', 'MEMBER_CODE', 'MEMBER_NAME', {
                     'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                    'member_name': 'MEMBER_NAME'})
+                    'member_name': 'MEMBER_NAME'}, {'allow_all': True})
 
     def test_subsystem_empty_query(self):
         with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
@@ -814,7 +502,7 @@ reconnect=true
                     "INFO:csapi:Response: {'http_status': 400, 'code': 'MISSING_PARAMETER', "
                     "'msg': 'Request parameter subsystem_code is missing'}"], cm.output)
 
-    @patch('csapi.add_subsystem', side_effect=psycopg2.Error('DB_ERROR_MSG'))
+    @patch('csapi.add_subsystem', side_effect=requests.exceptions.RequestException('API_ERROR_MSG'))
     def test_subsystem_db_error_handled(self, mock_add_member):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
@@ -824,166 +512,116 @@ reconnect=true
                 self.assertEqual(response.status_code, 500)
                 self.assertEqual(
                     jsonify({
-                        'code': 'DB_ERROR',
-                        'msg': 'Unclassified database error'}).json,
+                        'code': 'API_ERROR',
+                        'msg': 'Unclassified API error'}).json,
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
-                    "'member_code': 'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
+                    "'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
                     'INFO:csapi:Client DN: None',
-                    'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
-                    "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
-                    "'Unclassified database error'}"], cm.output)
+                    'ERROR:csapi:API_ERROR: Unclassified API error: API_ERROR_MSG',
+                    "INFO:csapi:Response: {'http_status': 500, 'code': 'API_ERROR', 'msg': "
+                    "'Unclassified API error'}"], cm.output)
                 mock_add_member.assert_called_with(
                     'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', {
                         'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                        'subsystem_code': 'SUBSYSTEM_CODE'})
+                        'subsystem_code': 'SUBSYSTEM_CODE'}, {'allow_all': True})
 
     @patch('csapi.add_subsystem', return_value={
-        'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
+        'http_status': 201, 'code': 'OK', 'msg': 'New Member added'})
     def test_subsystem_ok_query(self, mock_add_subsystem):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.post('/subsystem', data=json.dumps({
                     'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
                     'subsystem_code': 'SUBSYSTEM_CODE'}))
-                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.status_code, 201)
                 self.assertEqual(
                     jsonify({
                         'code': 'OK',
-                        'msg': 'All Correct'}).json,
+                        'msg': 'New Member added'}).json,
                     response.json
                 )
                 self.assertEqual([
-                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', "
-                    "'member_code': 'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
+                    "INFO:csapi:Incoming request: {'member_class': 'MEMBER_CLASS', 'member_code': "
+                    "'MEMBER_CODE', 'subsystem_code': 'SUBSYSTEM_CODE'}",
                     'INFO:csapi:Client DN: None',
-                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
-                    "Correct'}"], cm.output)
+                    "INFO:csapi:Response: {'http_status': 201, 'code': 'OK', 'msg': 'New Member "
+                    "added'}"], cm.output)
                 mock_add_subsystem.assert_called_with(
                     'MEMBER_CLASS', 'MEMBER_CODE', 'SUBSYSTEM_CODE', {
                         'member_class': 'MEMBER_CLASS', 'member_code': 'MEMBER_CODE',
-                        'subsystem_code': 'SUBSYSTEM_CODE'})
+                        'subsystem_code': 'SUBSYSTEM_CODE'}, {'allow_all': True})
 
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_test_db_ok(self, mock_get_db_conf, mock_get_db_connection):
-        mock_get_db_connection.execute = MagicMock()
-        mock_get_db_connection.fetchone = MagicMock(return_value=1)
+    @patch('csapi.requests')
+    @patch('csapi.api_request_params', return_value={
+        'url': 'URL', 'headers': {'HEAD': 'VAL'}, 'verify': 'VERIFY', 'timeout': 'TIMEOUT'})
+    def test_test_api_ok(self, mock_api_request_params, mock_requests):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests.get.return_value = mock_response
         self.assertEqual(
-            {'code': 'OK', 'http_status': 200, 'msg': 'API is ready'},
-            csapi.test_db())
-        mock_get_db_conf.assert_called_with()
-        mock_get_db_connection.assert_called_with({
-            'database': 'centerui_production', 'password': 'centerui_pass',
-            'username': 'centerui_user'})
+            {
+                'code': 'OK', 'http_status': 200,
+                'msg': 'API is ready'},
+            csapi.test_api({'CONFIG': 'VAL'}))
+        mock_api_request_params.assert_called_with({'CONFIG': 'VAL'}, '/system/status')
+        mock_requests.get.assert_called_with(
+            'URL', headers={'HEAD': 'VAL'}, verify='VERIFY', timeout='TIMEOUT')
 
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_test_db_not_ok(self, mock_get_db_conf, mock_get_db_connection):
-        mock_cur = mock_get_db_connection.return_value.__enter__.return_value.cursor.return_value
-        mock_cur.__enter__.return_value.fetchone.return_value = None
-        self.assertEqual(
-            {'code': 'DB_ERROR', 'http_status': 500, 'msg': 'Unexpected DB state'},
-            csapi.test_db())
-        mock_get_db_conf.assert_called_with()
-        mock_get_db_connection.assert_called_with({
-            'database': 'centerui_production', 'password': 'centerui_pass',
-            'username': 'centerui_user'})
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': '',
-            'password': 'centerui_pass',
-            'username': 'centerui_user'})
-    def test_test_db_no_database(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.test_db())
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': '',
-            'username': 'centerui_user'})
-    def test_test_db_no_password(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.test_db())
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.get_db_connection')
-    @patch('csapi.get_db_conf', return_value={
-            'database': 'centerui_production',
-            'password': 'centerui_pass',
-            'username': ''})
-    def test_test_db_no_username(self, mock_get_db_conf, mock_get_db_connection):
-        with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
-            self.assertEqual(
-                {
-                    'code': 'DB_CONF_ERROR', 'http_status': 500,
-                    'msg': 'Cannot access database configuration'},
-                csapi.test_db())
-            self.assertEqual(
-                ['ERROR:csapi:DB_CONF_ERROR: Cannot access database configuration'], cm.output)
-            mock_get_db_conf.assert_called_with()
-            mock_get_db_connection.assert_not_called()
-
-    @patch('csapi.test_db', side_effect=psycopg2.Error('DB_ERROR_MSG'))
-    def test_status_db_error_handled(self, mock_test_db):
+    @patch('csapi.test_api', side_effect=requests.exceptions.RequestException('API_ERROR_MSG'))
+    def test_status_db_error_handled(self, mock_test_api):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.get('/status')
                 self.assertEqual(500, response.status_code)
                 self.assertEqual(
                     jsonify({
-                        'code': 'DB_ERROR',
-                        'msg': 'Unclassified database error'}).json,
+                        'code': 'API_ERROR',
+                        'msg': 'Unclassified API error'}).json,
                     response.json
                 )
                 self.assertEqual([
                     'INFO:csapi:Incoming status request',
-                    'ERROR:csapi:DB_ERROR: Unclassified database error: DB_ERROR_MSG',
-                    "INFO:csapi:Response: {'http_status': 500, 'code': 'DB_ERROR', 'msg': "
-                    "'Unclassified database error'}"], cm.output)
-                mock_test_db.assert_called_with()
+                    'ERROR:csapi:API_ERROR: Unclassified API error: API_ERROR_MSG',
+                    "INFO:csapi:Response: {'http_status': 500, 'code': 'API_ERROR', 'msg': "
+                    "'Unclassified API error'}"], cm.output)
+                mock_test_api.assert_called_with({'allow_all': True})
 
-    @patch('csapi.test_db', return_value={
-        'http_status': 200, 'code': 'OK', 'msg': 'All Correct'})
-    def test_status_ok(self, mock_test_db):
+    @patch('csapi.test_api', return_value={
+        'http_status': 200, 'code': 'OK', 'msg': 'API is ready'})
+    def test_status_ok(self, mock_test_api):
         with self.app.app_context():
             with self.assertLogs(csapi.LOGGER, level='INFO') as cm:
                 response = self.client.get('/status')
                 self.assertEqual(200, response.status_code)
                 self.assertEqual(
-                    jsonify({'code': 'OK', 'msg': 'All Correct'}).json,
+                    jsonify({'code': 'OK', 'msg': 'API is ready'}).json,
                     response.json
                 )
                 self.assertEqual([
                     'INFO:csapi:Incoming status request',
-                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'All "
-                    "Correct'}"], cm.output)
-                mock_test_db.assert_called_with()
+                    "INFO:csapi:Response: {'http_status': 200, 'code': 'OK', 'msg': 'API is "
+                    "ready'}"], cm.output)
+                mock_test_api.assert_called_with({'allow_all': True})
+
+    @patch('csapi.configure_app', return_value={'log_file': 'LOG_FILE'})
+    @patch('csapi.Api')
+    def test_create_app(self, mock_api, mock_configure_app):
+        mock_api_value = MagicMock()
+        mock_api.return_value = mock_api_value
+        app = csapi.create_app('CONFIG_FILE')
+        mock_configure_app.assert_called_with('CONFIG_FILE')
+        self.assertIsInstance(app, csapi.Flask)
+        mock_api_value.add_resource.assert_has_calls([
+            call(csapi.MemberApi, '/member', resource_class_kwargs={
+                'config': {'log_file': 'LOG_FILE'}}),
+            call(csapi.SubsystemApi, '/subsystem', resource_class_kwargs={
+                'config': {'log_file': 'LOG_FILE'}}),
+            call(csapi.StatusApi, '/status', resource_class_kwargs={
+                'config': {'log_file': 'LOG_FILE'}})
+        ])
 
 
 class NoConfTestCase(unittest.TestCase):

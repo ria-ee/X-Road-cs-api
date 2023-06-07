@@ -1,8 +1,10 @@
 # Central Server API
 
-This API can be used to add new X-Road members and subsystems directly to X-Road Central Server (up to version 7.2.x) without web admin interface.
+This API can be used to add new X-Road members and subsystems directly to X-Road Central Server without web admin interface. API is compatible with X-Road versions 7.3+ and is using an official management API for Central Server to save data.
 
-An official management API for Central Server is included in X-Road versions 7.3+, and this API is not compatible with 7.3+ versions because of DB changes.
+The advantage of using this API in favor of official API is compatibility with previous versions of CS API, possibility to use TLS certificates for authentication and limiting access to Central Server API to only required functionality. For example when using official management API client application would be able not only to add new members and clients but additionally to delete them and perform various other actions in Central Server.
+
+For Central Server versions prior to 7.3 use older version of CS API.
 
 **NB! Make sure your API is not accessible from public internet, and is properly secured in your internal network!**
 
@@ -25,7 +27,7 @@ sudo mkdir -p /opt/csapi/socket
 sudo chown xroad /opt/csapi/socket/
 ```
 
-And copy files `csapi.py`, `server.py`, and `requirements.txt` into `/opt/csapi` directory.
+And copy files `csapi.py` and `requirements.txt` into `/opt/csapi` directory.
 
 You will need to install support for python venv:
 ```bash
@@ -40,7 +42,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create configuration file `/opt/csapi/config.json` based on example configuration `example-config.json`. You need to either set parameter "allow_all" to "true" to disable client certificate check or specify list of trusted Client DN's. Disabled check means that all certificates trusted by Nginx would be allowed.
+Create configuration file `/opt/csapi/config.yaml` based on example configuration `example-config.yaml`. You need to either set parameter "allow_all" to "true" to disable client certificate check or specify list of trusted Client DN's. Disabled check means that all certificates trusted by Nginx would be allowed.
 
 ### Systemd configuration
 
@@ -113,7 +115,13 @@ curl -k https://central-server.domain.local:5443/status
 
 ## Testing
 
-Note that `server.py` is a configuration file for logging and Flask and therefore not covered by tests.
+Install required python modules and dev tools into venv:
+```bash
+cd <project_directory>
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt -r requirements_dev_tools.txt
+```
 
 Running the tests:
 ```bash
@@ -126,12 +134,7 @@ Or alternatively run the test file directly:
 python test_csapi.py
 ```
 
-In order to measure code coverage install `coverage` module:
-```bash
-pip install coverage
-```
-
-Then run coverage analyse:
+In order to measure code coverage run:
 ```bash
 coverage run test_csapi.py
 coverage report csapi.py
@@ -143,12 +146,20 @@ coverage run test_csapi.py
 coverage html csapi.py
 ```
 
-In order to lint the code install `pylint` module:
-```bash
-pip install pylint
-```
-
-Then run the analysis:
+In order to lint the code run:
 ```bash
 pylint csapi.py
 ```
+
+# Freezing requirements
+
+In order to freeze python requirements so that production would have only module versions tested in dev/test environments you can create new venv and run pip freeze:
+```bash
+rm -rf venv
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip freeze -r requirements.txt -l > requirements_freeze.txt
+```
+
+Then you can install python requirements using `requirements_freeze.txt` file instead of `requirements.txt`
