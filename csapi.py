@@ -7,6 +7,8 @@ This module allows:
     * adding new subsystem to the X-Road Central Server.
 """
 
+__version__ = '1.0'
+
 import json
 import logging
 import re

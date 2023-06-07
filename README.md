@@ -1,8 +1,8 @@
 # Central Server API
 
-This API is used to add new X-Road members directly to X-Road Central Server without web admin interface.
+This API can be used to add new X-Road members and subsystems directly to X-Road Central Server (up to version 7.2.x) without web admin interface.
 
-An official management API will be included in a future X-Road release. You can find the roadmap for X-Road [here](https://www.niis.org/xroad-roadmap).
+An official management API for Central Server is included in X-Road versions 7.3+, and this API is not compatible with 7.3+ versions because of DB changes.
 
 **NB! Make sure your API is not accessible from public internet, and is properly secured in your internal network!**
 
