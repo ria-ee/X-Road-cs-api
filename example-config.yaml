@@ -12,7 +12,7 @@ api_url: https://localhost:4000/api/v1
 # ROOT CA of Central Server certificate
 api_ca_file: ca.pem
 
-# Central Server Management API key
+# Central Server Management API key with role "Registration Officer"
 api_key: example-api-key
 
 # Timeout for Central Server Management API Requests
