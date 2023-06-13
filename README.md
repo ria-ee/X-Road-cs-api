@@ -57,6 +57,13 @@ chown csapi:csapi /opt/csapi/config.yaml
 chmod 400 /opt/csapi/config.yaml
 ```
 
+Create log directory:
+```bash
+mkdir -p /var/log/csapi
+chmod 2750 /var/log/csapi
+chown -R csapi:syslog /var/log/csapi
+```
+
 ### Systemd configuration
 
 Add service description `systemd/csapi.service` to `/lib/systemd/system/csapi.service`. Then start and enable automatic startup:
