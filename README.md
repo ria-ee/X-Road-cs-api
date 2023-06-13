@@ -14,17 +14,24 @@ API is described using OpenAPI specification: [openapi-definition.yaml](openapi-
 
 ## Installation
 
-Installation was tested with Ubuntu 20.04 and Python 3.8.
+Installation was tested with:
+ * Ubuntu 20.04 and Python 3.8
+ * Ubuntu 22.04 and Python 3.10
 
 ### Program
 
-Provided systemd and nginx configurations assume than program files are installed under `/opt/csapi`. Program is running under `xroad` user to be able to access X-Road configuration files and database without any additional configurations.
+Provided systemd and nginx configurations assume than program files are installed under `/opt/csapi` and service is running under `csapi` user.
+
+Create `csapi` user:
+```bash
+sudo useradd -r -M -d /opt/csapi -s /usr/sbin/nologin csapi
+```
 
 Create `/opt/csapi` and `/opt/csapi/socket` directories:
 ```bash
 sudo mkdir -p /opt/csapi
 sudo mkdir -p /opt/csapi/socket
-sudo chown xroad /opt/csapi/socket/
+sudo chown csapi /opt/csapi/socket/
 ```
 
 And copy files `csapi.py` and `requirements.txt` into `/opt/csapi` directory.
@@ -43,6 +50,12 @@ pip install -r requirements.txt
 ```
 
 Create configuration file `/opt/csapi/config.yaml` based on example configuration `example-config.yaml`. You need to either set parameter "allow_all" to "true" to disable client certificate check or specify list of trusted Client DN's. Disabled check means that all certificates trusted by Nginx would be allowed.
+
+Configuration file contains Central Server management API token. Make sure configuration is readable only by `csapi` user:
+```bash
+chown csapi:csapi /opt/csapi/config.yaml
+chmod 400 /opt/csapi/config.yaml
+```
 
 ### Systemd configuration
 
