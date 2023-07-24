@@ -26,6 +26,7 @@ FILE_UMASK = 0o137
 
 API_ERROR_MSG = 'Unclassified API error'
 
+
 def load_config(config_file):
     """Load configuration from YAML file"""
     try:

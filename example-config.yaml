@@ -12,7 +12,7 @@ api_url: https://localhost:4000/api/v1
 # ROOT CA of Central Server certificate
 api_ca_file: ca.pem
 
-# Central Server Management API key
+# Central Server Management API key with role "Registration Officer"
 api_key: example-api-key
 
 # Timeout for Central Server Management API Requests
@@ -20,7 +20,7 @@ api_timeout: 10
 
 # Log to file instead of stdout if 'log_file' is set and 'logging_config' is not provided
 # Note that logrotate is not supported with this logging mode
-log_file: /var/log/xroad/csapi.log
+log_file: /var/log/csapi/csapi.log
 
 # Python logging configuration, overrides 'log_file' parameter
 # https://docs.python.org/3/library/logging.config.html#logging.config.dictConfig
@@ -44,7 +44,7 @@ log_file: /var/log/xroad/csapi.log
 #       level: INFO
 #       formatter: standard
 #       class: logging.handlers.WatchedFileHandler
-#       filename: /var/log/xroad/csapi.log
+#       filename: /var/log/csapi/csapi.log
 #   loggers:
 #     "":
 #       handlers:
